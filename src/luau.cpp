@@ -17,6 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "scripting.hpp"
+#include <stdexcept>
 
 ///////////////////////////////////////////////////////////
 
@@ -44,11 +45,24 @@ void callback_userthread(lua_State* LP, lua_State* L) {
 }
 
 void callback_allocate(lua_State* L, size_t osize, size_t nsize) {
-	//puts("allocate");
+}
+void callback_break(lua_State* L, lua_Debug* ar) {
+}
+
+void callback_debuginterrupt(lua_State* L, lua_Debug* ar) {
+	ScriptThread *thread = (ScriptThread*)lua_getthreaddata(L);
+	if (thread) {
+		thread->interrupted = static_cast<lua_State*>(ar->userdata);
+	}
 }
 
 void callback_interrupt(lua_State* L, int gc) {
-	//printf("interrupt %p\n", L);
+	if (gc == -1) {
+		ScriptThread *thread = (ScriptThread*)lua_getthreaddata(L);
+		if (thread) {
+			//throw std::runtime_error("interrupted");
+		}
+	}
 }
 
 VM::VM() {
@@ -65,11 +79,15 @@ VM::VM() {
 	cb->userthread = callback_userthread;
 	cb->onallocate = callback_allocate;
 	cb->interrupt = callback_interrupt;
+	cb->debugbreak = callback_break;
+	cb->debuginterrupt = callback_debuginterrupt;
 }
 
 VM::~VM() {
 	lua_close(this->L);
 }
+
+///////////////////////////////////////////////////////////
 
 Script::Script(VM *vm) {
 	this->vm = vm;
@@ -78,9 +96,9 @@ Script::Script(VM *vm) {
 	this->L = lua_newthread(vm->L);
 	this->thread_reference = lua_ref(vm->L, -1);
 	lua_pop(vm->L, 1);
+	lua_setthreaddata(this->L, NULL);
 
 	luaL_sandboxthread(this->L);
-	lua_setthreaddata(this->L, this);
 }
 
 Script::~Script() {
@@ -91,11 +109,11 @@ Script::~Script() {
 	lua_gc(this->L, LUA_GCCOLLECT, 0);
 }
 
-void Script::compile_and_start(const char *source) {
+bool Script::compile_and_start(const char *source) {
 	size_t bytecodeSize = 0;
 
 	char* bytecode = luau_compile(source, strlen(source), NULL, &bytecodeSize);
-	printf("Compiled; %ld bytes\n", bytecodeSize);
+	//printf("Compiled; %ld bytes\n", bytecodeSize);
 
 	int result = luau_load(this->L, "chunk", bytecode, bytecodeSize, 0);
 	if (result) {
@@ -106,13 +124,43 @@ void Script::compile_and_start(const char *source) {
 	ScriptThread *thread = new ScriptThread(this);
 	lua_xmove(this->L, thread->L, 1);
 	if(thread->run()) {
-		puts("Finished");
 		delete thread;
+		return true;
 	} else {
-		puts("Yielded");
 		this->threads.insert(std::unique_ptr<ScriptThread>(thread) );
+		return false;
 	}
 }
+
+bool Script::start_callback() {
+	ScriptThread *thread = new ScriptThread(this);
+	lua_xmove(this->L, thread->L, 2); // Should put function and data into the script first
+	if(thread->run()) {
+		delete thread;
+		return true;
+	} else {
+		this->threads.insert(std::unique_ptr<ScriptThread>(thread) );
+		return false;
+	}
+}
+
+bool Script::run_threads() {
+	//printf("Running threads for %p (%ld)\n", this, this->threads.size());
+
+	for (auto itr = this->threads.begin(); itr != this->threads.end(); ) {
+		ScriptThread *thread = (*itr).get();
+
+		if (thread->run()) {
+			itr = this->threads.erase(itr);
+		} else {
+			++itr;
+		}
+	}
+
+	return !this->threads.empty();
+}
+
+///////////////////////////////////////////////////////////
 
 ScriptThread::ScriptThread(Script *s) {
 	this->script = s;
@@ -120,7 +168,10 @@ ScriptThread::ScriptThread(Script *s) {
 	// Create a thread and store a reference away to prevent it from getting garbage collected
 	this->L = lua_newthread(s->L);
 	this->thread_reference = lua_ref(s->L, -1);
+	lua_setthreaddata(this->L, this);
 	lua_pop(s->L, 1);
+
+	this->interrupted = nullptr;
 }
 
 ScriptThread::~ScriptThread() {
@@ -131,6 +182,20 @@ ScriptThread::~ScriptThread() {
 }
 
 bool ScriptThread::run() {
+	if (this->interrupted != nullptr) {
+		lua_State *save_interrupted = this->interrupted;
+		int interrupted_status = lua_resume(this->interrupted, NULL, 0);
+		if (interrupted_status == LUA_BREAK) {
+			return false;
+		}
+
+		if (save_interrupted == this->interrupted) {
+			this->interrupted = nullptr;
+		} else {
+			throw std::runtime_error("Interrupt thread pointer was changed");
+		}
+	}
+
 	int status = lua_resume(this->L, NULL, 0);
 
 	if (status == 0) {
@@ -144,7 +209,9 @@ bool ScriptThread::run() {
 	} else {
 		std::string error;
 
-		if (status == LUA_YIELD) {
+		if (status == LUA_BREAK) {
+			return false; // Thread has not finished
+		} if (status == LUA_YIELD) {
 			return false; // Thread has not finished
 		} else if (const char* str = lua_tostring(this->L, -1)) {
 			error = str;

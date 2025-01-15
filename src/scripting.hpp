@@ -54,7 +54,9 @@ class Script {
 
 public:
 	lua_State *L;
-	void compile_and_start(const char *code);
+	bool compile_and_start(const char *code);
+	bool start_callback();
+	bool run_threads();
 
 	Script(VM *vm);
 	~Script();
@@ -66,6 +68,7 @@ class ScriptThread {
 	Script *script;
 
 public:
+	lua_State *interrupted;
 	lua_State *L;
 	bool run();
 

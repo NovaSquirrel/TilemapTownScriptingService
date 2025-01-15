@@ -21,12 +21,37 @@
 void test(VM *l) {
 	Script s = Script(l);
 
-	s.compile_and_start("eee = {}; for i = 1,10 do eee[i] = i; print(i) end");
-	s.compile_and_start("print(1234);");
-	s.compile_and_start("co = coroutine.create(function () print(\"hi\") end); coroutine.resume(co);");
+//	s.compile_and_start("eee = {}; for i = 1,10 do eee[i] = i; print(i) end");
+//	s.compile_and_start("print(1234);");
+//	s.compile_and_start("print(\"sleep test\"); tt.sleep(); print(\"sleep test 2\");");
 
-	Script s2 = Script(l);
-	s2.compile_and_start("print(999);");
+//	s.compile_and_start("co = coroutine.create(function () print(\"hi\"); coroutine.yield(222); tt.sleep(); print(\"hi 2\"); coroutine.yield(999); end);\n"
+//	"while true do\na, b = coroutine.resume(co)\nprint(\"Got this:\", a, b)\nif a == false then break end end\n");
+
+	s.compile_and_start("function proxy()\n"
+	"local co = coroutine.create(function() print(\"coroutine inside proxy\"); tt.sleep(); tt.sleep(); tt.sleep(); print(\"coroutine inside proxy 2\"); coroutine.yield(12345); end)\n"
+	"local success, data = coroutine.resume(co)\n"
+	"return data\n"
+	"end\n"
+	"\n"
+	"print(\"Taco\")\n"
+	"print(\"proxy got \"..proxy())\n"
+	"\n"
+	"\n"
+	"\n"
+	"local eee = coroutine.create(function() print(\"nested coroutine\"); print(proxy()); print(\"continued nested coroutine\"); coroutine.yield(123); end)\n"
+	"print(coroutine.resume(eee))\n"
+	);
+
+	int limit = 0;
+	while(s.run_threads()) {
+		//puts("Still going");
+		limit++;
+		if(limit > 10) {
+			puts("Too many iterations");
+			break;
+		}
+	}
 }
 
 int main(void) {

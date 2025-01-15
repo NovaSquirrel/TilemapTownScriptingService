@@ -100,7 +100,8 @@ static int tt_bitmap_sprite_new(lua_State* L) {
 	return 0;
 }
 static int tt_tt_sleep(lua_State* L) {
-	return lua_yield(L, 0);
+	puts("tt_tt_sleep");
+	return lua_break(L);
 }
 static int tt_tt_add_callback(lua_State* L) {
 	return 0;
