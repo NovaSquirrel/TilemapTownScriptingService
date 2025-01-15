@@ -24,9 +24,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include <string>
+#include <vector>
+#include <unordered_set>
+#include <memory>
+
+class VM;
+class Script;
+class ScriptThread;
 
 class VM {
+	std::unordered_set <std::unique_ptr<Script>> scripts;
+
 public:
 	lua_State *L;
 	size_t total_allocated_memory;
@@ -34,17 +44,34 @@ public:
 
 	VM();
 	~VM();
+	friend class Script;
 };
 
 class Script {
-	int threadReference;
+	std::unordered_set <std::unique_ptr<ScriptThread>> threads;
+	int thread_reference;
 	VM *vm;
 
 public:
 	lua_State *L;
-
-	void run(const char *code);
+	void compile_and_start(const char *code);
 
 	Script(VM *vm);
 	~Script();
+	friend class ScriptThread;
 };
+
+class ScriptThread {
+	int thread_reference;
+	Script *script;
+
+public:
+	lua_State *L;
+	bool run();
+
+	ScriptThread(Script *script);
+	~ScriptThread();
+};
+
+// Prototypes
+void register_lua_api(lua_State* L);

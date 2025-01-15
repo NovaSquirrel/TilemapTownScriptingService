@@ -1,4 +1,4 @@
-objlist := main luau
+objlist := main luau luau_api
 program_title = luatest
 
 LUAU := ../luau-0.656

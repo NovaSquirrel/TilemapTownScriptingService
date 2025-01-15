@@ -18,6 +18,8 @@
  */
 #include "scripting.hpp"
 
+///////////////////////////////////////////////////////////
+
 void *lua_allocator(void *ud, void *ptr, size_t osize, size_t nsize) {
 	class VM *l = (VM*)ud;
 	if ((l->total_allocated_memory - osize + nsize) > l->memory_allocation_limit)
@@ -36,11 +38,15 @@ void *lua_allocator(void *ud, void *ptr, size_t osize, size_t nsize) {
 }
 
 void callback_userthread(lua_State* LP, lua_State* L) {
-	//printf("userthread %p %p\n", LP, L);
+	if (LP != NULL) {
+		lua_setthreaddata(L, lua_getthreaddata(LP));
+	}
 }
+
 void callback_allocate(lua_State* L, size_t osize, size_t nsize) {
 	//puts("allocate");
 }
+
 void callback_interrupt(lua_State* L, int gc) {
 	//printf("interrupt %p\n", L);
 }
@@ -51,6 +57,7 @@ VM::VM() {
 
 	this->L = lua_newstate(lua_allocator, this);
     luaL_openlibs(this->L);
+	register_lua_api(this->L);
 	luaL_sandbox(this->L);
 	lua_setthreaddata(this->L, NULL);
 
@@ -69,7 +76,7 @@ Script::Script(VM *vm) {
 
 	// Create a thread and store a reference away to prevent it from getting garbage collected
 	this->L = lua_newthread(vm->L);
-	this->threadReference = lua_ref(vm->L, -1);
+	this->thread_reference = lua_ref(vm->L, -1);
 	lua_pop(vm->L, 1);
 
 	luaL_sandboxthread(this->L);
@@ -78,13 +85,13 @@ Script::Script(VM *vm) {
 
 Script::~Script() {
 	// Remove the reference to allow the thread to get garbage collected
-	lua_unref(this->vm->L, this->threadReference);
+	lua_unref(this->vm->L, this->thread_reference);
 
 	lua_resetthread(this->L);
 	lua_gc(this->L, LUA_GCCOLLECT, 0);
 }
 
-void Script::run(const char *source) {
+void Script::compile_and_start(const char *source) {
 	size_t bytecodeSize = 0;
 
 	char* bytecode = luau_compile(source, strlen(source), NULL, &bytecodeSize);
@@ -96,29 +103,57 @@ void Script::run(const char *source) {
 		exit(1);
 	}
 
-	int status = lua_pcall(this->L, 0, LUA_MULTRET, 0);
+	ScriptThread *thread = new ScriptThread(this);
+	lua_xmove(this->L, thread->L, 1);
+	if(thread->run()) {
+		puts("Finished");
+		delete thread;
+	} else {
+		puts("Yielded");
+		this->threads.insert(std::unique_ptr<ScriptThread>(thread) );
+	}
+}
 
-    if (status == 0) {
-        int n = lua_gettop(this->L);
-        if (n) {
-            luaL_checkstack(this->L, LUA_MINSTACK, "too many results to print");
-            lua_getglobal(this->L, "print");
-            lua_insert(this->L, 1);  
-            lua_pcall(this->L, n, 0, 0);
-        }
-    } else {
-        std::string error;
+ScriptThread::ScriptThread(Script *s) {
+	this->script = s;
 
-        if (status == LUA_YIELD) {
-            error = "thread yielded unexpectedly";
-        } else if (const char* str = lua_tostring(this->L, -1)) {
-            error = str;
-        }
+	// Create a thread and store a reference away to prevent it from getting garbage collected
+	this->L = lua_newthread(s->L);
+	this->thread_reference = lua_ref(s->L, -1);
+	lua_pop(s->L, 1);
+}
 
-        error += "\nstack backtrace:\n";
-        error += lua_debugtrace(this->L);
+ScriptThread::~ScriptThread() {
+	// Remove the reference to allow the thread to get garbage collected
+	lua_unref(this->script->L, this->thread_reference);
 
-        lua_pop(L, 1);
-        puts(error.c_str());
-    }
+	lua_resetthread(this->L);
+}
+
+bool ScriptThread::run() {
+	int status = lua_resume(this->L, NULL, 0);
+
+	if (status == 0) {
+		int n = lua_gettop(this->L);
+		if (n) {
+			luaL_checkstack(this->L, LUA_MINSTACK, "too many results to print");
+			lua_getglobal(this->L, "print");
+			lua_insert(this->L, 1);  
+			lua_pcall(this->L, n, 0, 0);
+		}
+	} else {
+		std::string error;
+
+		if (status == LUA_YIELD) {
+			return false; // Thread has not finished
+		} else if (const char* str = lua_tostring(this->L, -1)) {
+			error = str;
+		}
+
+		error += "\nstack backtrace:\n";
+		error += lua_debugtrace(this->L);
+
+		puts(error.c_str());
+	}
+	return true; // Thread finished and can be removed
 }

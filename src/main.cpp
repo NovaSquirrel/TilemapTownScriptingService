@@ -21,12 +21,12 @@
 void test(VM *l) {
 	Script s = Script(l);
 
-	s.run("eee = {}; for i = 1,10 do eee[i] = i; print(i) end");
-	s.run("print(1234);");
-	s.run("co = coroutine.create(function () print(\"hi\") end); coroutine.resume(co);");
+	s.compile_and_start("eee = {}; for i = 1,10 do eee[i] = i; print(i) end");
+	s.compile_and_start("print(1234);");
+	s.compile_and_start("co = coroutine.create(function () print(\"hi\") end); coroutine.resume(co);");
 
 	Script s2 = Script(l);
-	s2.run("print(999);");
+	s2.compile_and_start("print(999);");
 }
 
 int main(void) {
