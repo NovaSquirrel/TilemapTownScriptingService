@@ -18,13 +18,49 @@
  */
 #include "scripting.hpp"
 
+static void create_entity_table(lua_State* L, const char *ID, int ID_int) {
+	lua_newtable(L);
+
+	lua_newtable(L);
+	lua_getglobal(L, "Entity");
+	lua_setfield(L, -2, "__index");
+	lua_setreadonly(L, -1, true);
+
+	lua_setmetatable(L, -2);
+
+	lua_pushstring(L, ID);
+	lua_setfield(L, -2, "id");
+	lua_pushinteger(L, ID_int);
+	lua_setfield(L, -2, "_id");
+
+	lua_setreadonly(L, -1, true);
+}
 static int tt_entity_new(lua_State* L) {
 	return 0;
 }
 static int tt_entity_me(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread) {
+		char id[20];
+		if(thread->script->entity_id >= 0) {
+			sprintf(id, "%d", thread->script->entity_id);
+		} else {
+			sprintf(id, "~%d", -thread->script->entity_id);
+		}
+		create_entity_table(L, id, thread->script->entity_id);
+		return 1;
+	}
 	return 0;
 }
 static int tt_entity_get(lua_State* L) {
+	const char *ID = luaL_checkstring(L, 1);
+	if (ID) {
+		if (ID[0] != '~')
+			create_entity_table(L, ID, strtol(ID, nullptr, 10));
+		else
+			create_entity_table(L, ID, -strtol(ID+1, nullptr, 10));
+		return 1;
+	}
 	return 0;
 }
 static int tt_map_who(lua_State* L) {
@@ -72,19 +108,19 @@ static int tt_map_reset_callbacks(lua_State* L) {
 	return 0;
 }
 static int tt_storage_reset(lua_State* L) {
-	const char* key = luaL_checkstring(L, 1);
+//	const char* key = luaL_checkstring(L, 1);
 	return 0;
 }
 static int tt_storage_load(lua_State* L) {
-	const char* key = luaL_checkstring(L, 1);
+//	const char* key = luaL_checkstring(L, 1);
 	return 0;
 }
 static int tt_storage_save(lua_State* L) {
-	const char* key = luaL_checkstring(L, 1);
+//	const char* key = luaL_checkstring(L, 1);
 	return 0;
 }
 static int tt_storage_list(lua_State* L) {
-	const char* key = luaL_checkstring(L, 1);
+//	const char* key = luaL_checkstring(L, 1);
 	return 0;
 }
 static int tt_mini_tilemap_new(lua_State* L) {
@@ -100,8 +136,32 @@ static int tt_bitmap_sprite_new(lua_State* L) {
 	return 0;
 }
 static int tt_tt_sleep(lua_State* L) {
-	puts("tt_tt_sleep");
+	int delay_ms = luaL_checkinteger(L, 1);
+	if (delay_ms == 0)
+		return 0;
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread) {
+		thread->sleep_for_ms(delay_ms);
+	}
 	return lua_break(L);
+}
+static int tt_tt_memory_used(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread) {
+		lua_pushunsigned(L, thread->script->vm->total_allocated_memory);
+		return 1;
+	}
+	lua_pushnil(L);
+	return 1;
+}
+static int tt_tt_memory_free(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread) {
+		lua_pushunsigned(L, thread->script->vm->memory_allocation_limit - thread->script->vm->total_allocated_memory);
+		return 1;
+	}
+	lua_pushnil(L);
+	return 1;
 }
 static int tt_tt_add_callback(lua_State* L) {
 	return 0;
@@ -256,6 +316,8 @@ void register_lua_api(lua_State* L) {
 
     static const luaL_Reg misc_funcs[] = {
 		{"sleep",           tt_tt_sleep},
+		{"memory_used",     tt_tt_memory_used},
+		{"memory_free",     tt_tt_memory_free},
 		{"add_callback",    tt_tt_add_callback},
 		{"remove_callback", tt_tt_remove_callback},
 		{"reset_callbacks", tt_tt_reset_callbacks},
@@ -320,6 +382,4 @@ void register_lua_api(lua_State* L) {
     luaL_register(L, "Bitmap2x4",     bitmap_2x4_object_funcs);
 
     lua_pop(L, 1);
-
-
 }
