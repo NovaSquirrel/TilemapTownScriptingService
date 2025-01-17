@@ -20,11 +20,42 @@
 #include<unistd.h>
 
 void test(VM *l) {
-	Script s = Script(l, 5);
+//	l->add_script(5, "eee = {}; for i = 1,10 do eee[i] = i; print(i) end");
+//	l->add_script(6, "print(1)");
+//	l->add_script(7, "print(123)");
+//	l->add_script(8, "print(1234)");
+//	l->add_script(9, "print(12345)");
+	l->add_script(10, "while true do end");
+//	l->add_script(11, "while true do end");
 
-	s.compile_and_start("eee = {}; for i = 1,10 do eee[i] = i; print(i) end");
-	s.compile_and_start("print(1234);");
-	s.compile_and_start("print(\"sleep test\"); tt.sleep(5000); print(\"sleep test 2\"); tt.sleep(5000); print(\"sleep test 3\");");
+	int limit = 0;
+	RunThreadsStatus status;
+	do {
+		status = l->run_scripts();
+		printf("VM run scripts status: %d\n", status);
+		/*
+		if(status == RUN_THREADS_ALL_WAITING) {
+			puts("All threads are waiting");
+			sleep(1);
+//			usleep(100000);
+		}
+		*/
+		limit++;
+	} while(limit < 10 && status != RUN_THREADS_FINISHED);
+
+//	l->remove_script(5);
+//	l->remove_script(6);
+//	l->remove_script(7);
+//	l->remove_script(8);
+//	l->remove_script(9);
+	l->remove_script(10);
+//	l->remove_script(11);
+
+//	Script s = Script(l, 5);
+
+//	s.compile_and_start("eee = {}; for i = 1,10 do eee[i] = i; print(i) end");
+//	s.compile_and_start("print(1234);");
+//	s.compile_and_start("print(\"sleep test\"); tt.sleep(5000); print(\"sleep test 2\"); tt.sleep(5000); print(\"sleep test 3\");");
 
 //	s.compile_and_start("co = coroutine.create(function () print(\"hi\"); coroutine.yield(222); tt.sleep(); print(\"hi 2\"); coroutine.yield(999); end);\n"
 //	"while true do\na, b = coroutine.resume(co)\nprint(\"Got this:\", a, b)\nif a == false then break end end\n");
@@ -51,8 +82,9 @@ void test(VM *l) {
 //	s.compile_and_start("print(tt.memory_used()); print(tt.memory_free()); local eee = entity.me(); print(eee.id);");
 
 
-	s.compile_and_start("print(\"this will hang!\"); while true do end; print(\"oops\")");
+//	s.compile_and_start("print(\"this will hang!\"); while true do end; print(\"oops\")");
 
+/*
 	int limit = 0;
 	RunThreadsStatus status;
 	do {
@@ -64,6 +96,7 @@ void test(VM *l) {
 		}
 		limit++;
 	} while(limit < 100 && status != RUN_THREADS_FINISHED);
+*/
 }
 
 int main(void) {

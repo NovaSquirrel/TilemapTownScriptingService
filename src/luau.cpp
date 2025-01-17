@@ -78,12 +78,12 @@ void callback_interrupt(lua_State* L, int gc) {
 		// Has the thread been running for too long?
 		struct timespec now_ts;
 		clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now_ts);
-		if (now_ts.tv_sec < thread->halt_at.tv_sec) {
+		if (now_ts.tv_sec < thread->preempt_at.tv_sec) {
 			return;
 		}
-		if (now_ts.tv_sec > thread->halt_at.tv_sec || (now_ts.tv_sec == thread->halt_at.tv_sec && now_ts.tv_nsec >= thread->halt_at.tv_nsec)) {
+		if (now_ts.tv_sec > thread->preempt_at.tv_sec || (now_ts.tv_sec == thread->preempt_at.tv_sec && now_ts.tv_nsec >= thread->preempt_at.tv_nsec)) {
 //			throw std::runtime_error("Script ran for too long");
-			thread->was_halted = true;
+			thread->was_preempted = true;
 			lua_break(L);
 			return;
 		}
@@ -91,6 +91,7 @@ void callback_interrupt(lua_State* L, int gc) {
 }
 
 VM::VM() {
+	puts("new VM");
 	this->total_allocated_memory = 0;
 	this->memory_allocation_limit = 2*1024*1024;
 
@@ -102,14 +103,95 @@ VM::VM() {
 
 	lua_Callbacks* cb = lua_callbacks(this->L);
 	cb->userthread = callback_userthread;
-	cb->onallocate = callback_allocate;
+//	cb->onallocate = callback_allocate;
 	cb->interrupt = callback_interrupt;
-	cb->debugbreak = callback_break;
+//	cb->debugbreak = callback_break;
 	cb->debuginterrupt = callback_debuginterrupt;
 }
 
 VM::~VM() {
+	puts("del VM");
 	lua_close(this->L);
+}
+
+void VM::add_script(int entity_id, const char *code) {
+	Script *script = new Script(this, entity_id);
+	script->compile_and_start(code);
+	script->compile_and_start(code);
+	script->compile_and_start(code);
+	this->scripts.insert(std::unique_ptr<Script>(script) );
+}
+
+void VM::remove_script(int entity_id) {
+	for (auto itr = this->scripts.begin(); itr != this->scripts.end(); ) {
+		Script *script = (*itr).get();
+
+		if (script->entity_id == entity_id) {
+			itr = this->scripts.erase(itr);
+		} else {
+			++itr;
+		}
+	}
+}
+
+RunThreadsStatus VM::run_scripts() {
+	printf("VM - running scripts - %ld\n", this->scripts.size());
+	bool any_scripts_not_done;
+	bool all_scripts_waiting;
+	
+	bool trying_again_after_clearing_scheduled_flag = false;
+
+	if(this->scripts.empty())
+		return RUN_THREADS_FINISHED;
+	while (true) {
+		any_scripts_not_done = false;
+		all_scripts_waiting = true;
+		bool any_scripts_newly_scheduled = false;
+
+		for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ++itr) {
+			Script *script = (*itr).get();
+			if (script->was_scheduled_yet) {
+				printf("script %p already scheduled\n", script);
+				continue;
+			}
+			printf("script %p NOT already scheduled\n", script);
+			script->was_scheduled_yet = true;
+			any_scripts_newly_scheduled = true;
+
+			RunThreadsStatus status = script->run_threads();
+			printf("Script status %d\n", status);
+
+			switch (status) {
+				case RUN_THREADS_FINISHED:
+					break;
+				case RUN_THREADS_KEEP_GOING:
+					all_scripts_waiting = false;
+				case RUN_THREADS_ALL_WAITING:
+					any_scripts_not_done = true;
+					break;
+				case RUN_THREADS_PREEMPTED:
+					puts("Preempted");
+					return RUN_THREADS_PREEMPTED;
+			}
+		}
+		
+		if (trying_again_after_clearing_scheduled_flag)
+			break;
+		if (!any_scripts_newly_scheduled) { // Give everything another chance to run, because the entire list was marked as already scheduled
+			puts("Trying again");
+			trying_again_after_clearing_scheduled_flag = true;
+			for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ++itr) {
+				(*itr).get()->was_scheduled_yet = false;
+			}
+		} else
+			break;
+	}
+
+//	if (!any_scripts_not_done)
+//		return RUN_THREADS_FINISHED;
+//	if (all_scripts_waiting)
+//		return RUN_THREADS_ALL_WAITING;
+	return RUN_THREADS_KEEP_GOING;
 }
 
 ///////////////////////////////////////////////////////////
@@ -117,6 +199,7 @@ VM::~VM() {
 Script::Script(VM *vm, int entity_id) {
 	this->vm = vm;
 	this->entity_id = entity_id;
+	this->was_scheduled_yet = false;
 
 	// Create a thread and store a reference away to prevent it from getting garbage collected
 	this->L = lua_newthread(vm->L);
@@ -173,35 +256,65 @@ bool Script::start_callback() {
 }
 
 RunThreadsStatus Script::run_threads() {
-	//printf("Running threads for %p (%ld)\n", this, this->threads.size());
+	printf("Script %p - running scripts - %ld\n", this, this->threads.size());
 
 	bool any_threads_run = false;
+	bool trying_again_after_clearing_scheduled_flag = false;
 
-	for (auto itr = this->threads.begin(); itr != this->threads.end(); ) {
-		ScriptThread *thread = (*itr).get();
+	if(this->threads.empty())
+		return RUN_THREADS_FINISHED;
+	while (true) {
+		bool any_threads_newly_scheduled = false;
 
-		if(thread->is_sleeping) {
-			struct timespec now_ts;
-			clock_gettime(CLOCK_MONOTONIC, &now_ts);
-			if (now_ts.tv_sec < thread->wake_up_at.tv_sec) {
+		for (auto itr = this->threads.begin(); itr != this->threads.end(); ) {
+			ScriptThread *thread = (*itr).get();
+			if (thread->was_scheduled_yet) {
+				printf("\tthread %p already scheduled\n", thread);
 				++itr;
 				continue;
 			}
-			if (now_ts.tv_sec > thread->wake_up_at.tv_sec || (now_ts.tv_sec == thread->wake_up_at.tv_sec && now_ts.tv_nsec >= thread->wake_up_at.tv_nsec)) {
-				thread->is_sleeping = false;
+			printf("\tthread %p NOT already scheduled\n", thread);
+			thread->was_scheduled_yet = true;
+			any_threads_newly_scheduled = true;
+
+			// If thread is sleeping, check if it's time to wake up
+			if(thread->is_sleeping) {
+				struct timespec now_ts;
+				clock_gettime(CLOCK_MONOTONIC, &now_ts);
+				if (now_ts.tv_sec < thread->wake_up_at.tv_sec) {
+					++itr;
+					continue;
+				}
+				if (now_ts.tv_sec > thread->wake_up_at.tv_sec || (now_ts.tv_sec == thread->wake_up_at.tv_sec && now_ts.tv_nsec >= thread->wake_up_at.tv_nsec)) {
+					thread->is_sleeping = false;
+				} else {
+					++itr;
+					continue;
+				}
+			}
+
+			// Thread is not sleeping, or has just woken up
+			any_threads_run = true;
+			if (thread->run()) {
+				itr = this->threads.erase(itr);
 			} else {
+				if (thread->was_preempted) {
+					puts("\tthread was preempted");
+					return RUN_THREADS_PREEMPTED;
+				}
 				++itr;
-				continue;
 			}
 		}
 
-		any_threads_run = true;
-
-		if (thread->run()) {
-			itr = this->threads.erase(itr);
-		} else {
-			++itr;
-		}
+		if (trying_again_after_clearing_scheduled_flag)
+			break;
+		if(!any_threads_newly_scheduled) { // Give everything another chance to run, because the entire list was marked as already scheduled
+			trying_again_after_clearing_scheduled_flag = true;
+			for(auto itr = this->threads.begin(); itr != this->threads.end(); ++itr) {
+				(*itr).get()->was_scheduled_yet = false;
+			}
+		} else
+			break;
 	}
 
 	if(this->threads.empty())
@@ -225,48 +338,57 @@ ScriptThread::ScriptThread(Script *s) {
 	// Initialize members
 	this->interrupted = nullptr;
 	this->nanoseconds = 0;
+	this->total_nanoseconds = 0;
 	this->is_sleeping = false;
 	this->is_waiting_for_api = false;
+	this->is_thread_stopped = false;
+	this->was_scheduled_yet = false;
 }
 
 ScriptThread::~ScriptThread() {
 	// Remove the reference to allow the thread to get garbage collected
-	lua_unref(this->script->L, this->thread_reference);
-
-	lua_resetthread(this->L);
+	this->stop();
 }
 
-int run_script_thread_with_stopwatch(ScriptThread *thread, lua_State *state) {
-	thread->was_halted = false;
+int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state) {
+	this->was_preempted = false;
 
 	struct timespec start_ts, end_ts;
 	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &start_ts);
 	unsigned long long start_nanoseconds = start_ts.tv_sec * ONE_SECOND_IN_NANOSECONDS + start_ts.tv_nsec;
-	unsigned long long halt_nanoseconds = start_nanoseconds + (ONE_SECOND_IN_NANOSECONDS/2 - thread->nanoseconds);
-	thread->halt_at.tv_sec  = halt_nanoseconds / ONE_SECOND_IN_NANOSECONDS;
-	thread->halt_at.tv_nsec = halt_nanoseconds % ONE_SECOND_IN_NANOSECONDS;
+	unsigned long long halt_nanoseconds = start_nanoseconds + TIME_SLICE_IN_NANOSECONDS;
+	this->preempt_at.tv_sec  = halt_nanoseconds / ONE_SECOND_IN_NANOSECONDS;
+	this->preempt_at.tv_nsec = halt_nanoseconds % ONE_SECOND_IN_NANOSECONDS;
 
 	int status = lua_resume(state, NULL, 0);
 	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &end_ts);
 
 	unsigned long long end_nanoseconds = end_ts.tv_sec * ONE_SECOND_IN_NANOSECONDS + end_ts.tv_nsec;
 	unsigned long long nanoseconds = end_nanoseconds - start_nanoseconds;
-	thread->nanoseconds += nanoseconds;
+	this->nanoseconds += nanoseconds;
+	this->total_nanoseconds += nanoseconds;
 
-	if(thread->was_halted) {
-		thread->is_sleeping = true;
-		thread->sleep_for_ms(1000);
+	if(this->total_nanoseconds > TERMINATE_THREAD_AT_MS * ONE_MILLISECOND_IN_NANOSECONDS) {
+		puts("Stopping a stuck thread");
+		this->stop();
+		return LUA_OK;
 	}
-
+	if(this->nanoseconds > PENALTY_THRESHOLD_MS * ONE_MILLISECOND_IN_NANOSECONDS) {
+		puts("Making a thread sleep");
+		this->is_sleeping = true;
+		this->sleep_for_ms(PENALTY_SLEEP_MS);
+	}
 	return status;
 }
 
 bool ScriptThread::run() {
 	// If a coroutine inside the thread was interrupted by lua_break(), that specific coroutine needs to be resumed
 	// callback_debuginterrupt will be called, which will provide a pointer to the coroutine that needs to resume
+	if (this->is_thread_stopped)
+		return true;
 	if (this->interrupted != nullptr) {
 		lua_State *save_interrupted = this->interrupted;
-		int interrupted_status = run_script_thread_with_stopwatch(this, this->interrupted);
+		int interrupted_status = this->resume_script_thread_with_stopwatch(this->interrupted);
 		if (interrupted_status == LUA_BREAK) {
 			return false;
 		}
@@ -277,9 +399,11 @@ bool ScriptThread::run() {
 			throw std::runtime_error("Interrupt thread pointer was changed");
 		}
 	}
+	if (this->is_thread_stopped)
+		return true;
 
 	// Try resuming the main coroutine this thread object is for
-	int status = run_script_thread_with_stopwatch(this, this->L);
+	int status = this->resume_script_thread_with_stopwatch(this->L);
 
 	if (status == 0) {
 		int n = lua_gettop(this->L);
@@ -306,14 +430,23 @@ bool ScriptThread::run() {
 	return true; // Thread finished and can be removed
 }
 
+void ScriptThread::stop() {
+	if (!this->is_thread_stopped) {
+		lua_resetthread(this->L);
+		lua_unref(this->script->L, this->thread_reference);
+		this->is_thread_stopped = true;
+	}
+}
+
 void ScriptThread::sleep_for_ms(int ms) {
 	if (ms == 0)
 		return;
 	this->is_sleeping = true;
-	this->nanoseconds = 0;
+	if (ms >= 1000)
+		this->nanoseconds = 0;
 
 	clock_gettime(CLOCK_MONOTONIC, &this->wake_up_at);
-	unsigned long long desired_nanoseconds = this->wake_up_at.tv_nsec + ms * 1000000;
+	unsigned long long desired_nanoseconds = this->wake_up_at.tv_nsec + ms * ONE_MILLISECOND_IN_NANOSECONDS;
 	if (desired_nanoseconds > 999999999) {
 		this->wake_up_at.tv_sec += desired_nanoseconds / ONE_SECOND_IN_NANOSECONDS;
 	}

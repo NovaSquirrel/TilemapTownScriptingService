@@ -31,7 +31,13 @@
 #include <unordered_set>
 #include <memory>
 
-#define ONE_SECOND_IN_NANOSECONDS 1000000000
+#define ONE_SECOND_IN_NANOSECONDS 1000000000ULL
+#define ONE_MILLISECOND_IN_NANOSECONDS 1000000ULL
+#define TIME_SLICE_IN_NANOSECONDS (ONE_MILLISECOND_IN_NANOSECONDS * 10)
+
+#define PENALTY_THRESHOLD_MS 500
+#define PENALTY_SLEEP_MS 2500
+#define TERMINATE_THREAD_AT_MS 5000
 
 class VM;
 class Script;
@@ -41,6 +47,7 @@ enum RunThreadsStatus {
 	RUN_THREADS_FINISHED,
 	RUN_THREADS_KEEP_GOING,
 	RUN_THREADS_ALL_WAITING,
+	RUN_THREADS_PREEMPTED,
 };
 
 ///////////////////////////////////////////////////////////
@@ -53,6 +60,10 @@ public:
 	size_t total_allocated_memory;  // Amount of bytes this VM is currently using
 	size_t memory_allocation_limit; // Maximum number of bytes this VM is allowed to use
 
+	void add_script(int entity_id, const char *code);
+	void remove_script(int entity_id);
+	RunThreadsStatus run_scripts();
+
 	VM();
 	~VM();
 	friend class Script;
@@ -60,6 +71,7 @@ public:
 
 class Script {
 	int thread_reference;      // Used with lua_ref() to store a reference to the thread, and prevent it from being garbage collected
+	bool was_scheduled_yet;
 	std::unordered_set <std::unique_ptr<ScriptThread>> threads;
 
 public:
@@ -67,6 +79,7 @@ public:
 
 	VM *vm;                    // VM containing the script's own global table and all of its threads
 	lua_State *L;
+
 	bool compile_and_start(const char *code);
 	bool start_callback();
 	RunThreadsStatus run_threads();
@@ -74,12 +87,17 @@ public:
 	Script(VM *vm, int entity_id);
 	~Script();
 	friend class ScriptThread;
+	friend class VM;
 };
 
 ///////////////////////////////////////////////////////////
 
 class ScriptThread {
 	int thread_reference;      // Used with lua_ref() to store a reference to the thread, and prevent it from being garbage collected
+	bool was_scheduled_yet;    // Thread got a chance to run
+	unsigned int nanoseconds;             // Amount of nanoseconds this thread has been running for (to apply penalty)
+	unsigned long long total_nanoseconds; // Amount of nanoseconds this thread has been running for (to just force stop the script)
+	bool is_thread_stopped;    // Thread was forcibly stopped
 
 public:
 	bool is_sleeping;          // Currently sleeping
@@ -89,19 +107,21 @@ public:
 	bool have_api_response;    // Tilemap Town server has a response waiting for this thread
 	int api_response_key;      // Key for knowing that API responses are for this thread specifically
 
-	timespec halt_at;          // When to halt the thread
-	bool was_halted;           // Was the thread stopped because it ran too long?
-	unsigned int nanoseconds;  // Amount of nanoseconds this thread has been running for
+	timespec preempt_at;       // When to pause the thread and let another thread run
+	bool was_preempted;        // Was the thread stopped because it ran too long?
 
 	Script *script;            // Script this thread belongs to
 	lua_State *interrupted;    // Set by the "debuginterrupt" callback
 	lua_State *L;              // This thread's state
 
 	bool run();                // Returns true if the thread has completed
+	int resume_script_thread_with_stopwatch(lua_State *state);
 	void sleep_for_ms(int ms);
+	void stop();
 
 	ScriptThread(Script *script);
 	~ScriptThread();
+	friend class Script;
 };
 
 // Prototypes
