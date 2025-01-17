@@ -19,18 +19,7 @@
 #include "scripting.hpp"
 #include <stdexcept>
 
-// From https://stackoverflow.com/a/6749766
-timespec diff(timespec start, timespec end) {
-	timespec temp;
-	if ((end.tv_nsec-start.tv_nsec)<0) {
-		temp.tv_sec = end.tv_sec-start.tv_sec-1;
-		temp.tv_nsec = 1000000000+end.tv_nsec-start.tv_nsec;
-	} else {
-		temp.tv_sec = end.tv_sec-start.tv_sec;
-		temp.tv_nsec = end.tv_nsec-start.tv_nsec;
-	}
-	return temp;
-}
+//#define SCHEDULING_PRINTS 1
 
 ///////////////////////////////////////////////////////////
 
@@ -117,8 +106,6 @@ VM::~VM() {
 void VM::add_script(int entity_id, const char *code) {
 	Script *script = new Script(this, entity_id);
 	script->compile_and_start(code);
-	script->compile_and_start(code);
-	script->compile_and_start(code);
 	this->scripts.insert(std::unique_ptr<Script>(script) );
 }
 
@@ -135,10 +122,14 @@ void VM::remove_script(int entity_id) {
 }
 
 RunThreadsStatus VM::run_scripts() {
+	#ifdef SCHEDULING_PRINTS
 	printf("VM - running scripts - %ld\n", this->scripts.size());
-	bool any_scripts_not_done;
-	bool all_scripts_waiting;
-	
+	#endif
+	bool any_scripts_not_done; // At least one script needs to be resumed in the future
+	bool all_scripts_waiting;  // All scripts are waiting on a timer or API result or something else
+
+	this->is_any_script_sleeping = false;
+
 	bool trying_again_after_clearing_scheduled_flag = false;
 
 	if(this->scripts.empty())
@@ -151,15 +142,21 @@ RunThreadsStatus VM::run_scripts() {
 		for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ++itr) {
 			Script *script = (*itr).get();
 			if (script->was_scheduled_yet) {
+				#ifdef SCHEDULING_PRINTS
 				printf("script %p already scheduled\n", script);
+				#endif
 				continue;
 			}
+			#ifdef SCHEDULING_PRINTS
 			printf("script %p NOT already scheduled\n", script);
+			#endif
 			script->was_scheduled_yet = true;
 			any_scripts_newly_scheduled = true;
 
 			RunThreadsStatus status = script->run_threads();
+			#ifdef SCHEDULING_PRINTS
 			printf("Script status %d\n", status);
+			#endif
 
 			switch (status) {
 				case RUN_THREADS_FINISHED:
@@ -167,10 +164,19 @@ RunThreadsStatus VM::run_scripts() {
 				case RUN_THREADS_KEEP_GOING:
 					all_scripts_waiting = false;
 				case RUN_THREADS_ALL_WAITING:
+					if (script->is_any_thread_sleeping) {
+						if (this->is_any_script_sleeping) {
+							if (is_ts_earlier(script->earliest_wake_up_at, this->earliest_wake_up_at)) {
+								this->earliest_wake_up_at = script->earliest_wake_up_at;
+							}
+						} else {
+							this->is_any_script_sleeping = true;
+							this->earliest_wake_up_at = script->earliest_wake_up_at;
+						}
+					}
 					any_scripts_not_done = true;
 					break;
 				case RUN_THREADS_PREEMPTED:
-					puts("Preempted");
 					return RUN_THREADS_PREEMPTED;
 			}
 		}
@@ -178,7 +184,6 @@ RunThreadsStatus VM::run_scripts() {
 		if (trying_again_after_clearing_scheduled_flag)
 			break;
 		if (!any_scripts_newly_scheduled) { // Give everything another chance to run, because the entire list was marked as already scheduled
-			puts("Trying again");
 			trying_again_after_clearing_scheduled_flag = true;
 			for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ++itr) {
 				(*itr).get()->was_scheduled_yet = false;
@@ -187,10 +192,10 @@ RunThreadsStatus VM::run_scripts() {
 			break;
 	}
 
-//	if (!any_scripts_not_done)
-//		return RUN_THREADS_FINISHED;
-//	if (all_scripts_waiting)
-//		return RUN_THREADS_ALL_WAITING;
+	if (!any_scripts_not_done)
+		return RUN_THREADS_FINISHED;
+	if (all_scripts_waiting)
+		return RUN_THREADS_ALL_WAITING;
 	return RUN_THREADS_KEEP_GOING;
 }
 
@@ -255,11 +260,24 @@ bool Script::start_callback() {
 	}
 }
 
-RunThreadsStatus Script::run_threads() {
-	printf("Script %p - running scripts - %ld\n", this, this->threads.size());
+void update_thread_wakeup_time(Script *s, ScriptThread *thread) {
+	if (s->is_any_thread_sleeping) {
+		if (is_ts_earlier(thread->wake_up_at, s->earliest_wake_up_at)) {
+			s->earliest_wake_up_at = thread->wake_up_at;
+		}
+	} else {
+		s->is_any_thread_sleeping = true;
+		s->earliest_wake_up_at = thread->wake_up_at;
+	}
+}
 
+RunThreadsStatus Script::run_threads() {
+	#ifdef SCHEDULING_PRINTS
+	printf("\tScript %p - running scripts - %ld\n", this, this->threads.size());
+	#endif
 	bool any_threads_run = false;
 	bool trying_again_after_clearing_scheduled_flag = false;
+	this->is_any_thread_sleeping = false;
 
 	if(this->threads.empty())
 		return RUN_THREADS_FINISHED;
@@ -269,11 +287,15 @@ RunThreadsStatus Script::run_threads() {
 		for (auto itr = this->threads.begin(); itr != this->threads.end(); ) {
 			ScriptThread *thread = (*itr).get();
 			if (thread->was_scheduled_yet) {
+				#ifdef SCHEDULING_PRINTS
 				printf("\tthread %p already scheduled\n", thread);
+				#endif
 				++itr;
 				continue;
 			}
+			#ifdef SCHEDULING_PRINTS
 			printf("\tthread %p NOT already scheduled\n", thread);
+			#endif
 			thread->was_scheduled_yet = true;
 			any_threads_newly_scheduled = true;
 
@@ -282,25 +304,34 @@ RunThreadsStatus Script::run_threads() {
 				struct timespec now_ts;
 				clock_gettime(CLOCK_MONOTONIC, &now_ts);
 				if (now_ts.tv_sec < thread->wake_up_at.tv_sec) {
+					update_thread_wakeup_time(this, thread);
 					++itr;
 					continue;
 				}
 				if (now_ts.tv_sec > thread->wake_up_at.tv_sec || (now_ts.tv_sec == thread->wake_up_at.tv_sec && now_ts.tv_nsec >= thread->wake_up_at.tv_nsec)) {
 					thread->is_sleeping = false;
 				} else {
+					update_thread_wakeup_time(this, thread);
 					++itr;
 					continue;
 				}
 			}
 
 			// Thread is not sleeping, or has just woken up
+			bool old_any_threads_run = false;
 			any_threads_run = true;
 			if (thread->run()) {
 				itr = this->threads.erase(itr);
 			} else {
-				if (thread->was_preempted) {
+				if (thread->was_preempted) { // If it was preempted, stop running any other threads
+					#ifdef SCHEDULING_PRINTS
 					puts("\tthread was preempted");
+					#endif
 					return RUN_THREADS_PREEMPTED;
+				}
+				if (thread->is_sleeping && !old_any_threads_run) { // If this thread just fell asleep, allow it to contribute to detecting all threads sleeping
+					update_thread_wakeup_time(this, thread);
+					any_threads_run = false;
 				}
 				++itr;
 			}
@@ -369,12 +400,12 @@ int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state) {
 	this->total_nanoseconds += nanoseconds;
 
 	if(this->total_nanoseconds > TERMINATE_THREAD_AT_MS * ONE_MILLISECOND_IN_NANOSECONDS) {
-		puts("Stopping a stuck thread");
+		//puts("Stopping a stuck thread");
 		this->stop();
 		return LUA_OK;
 	}
 	if(this->nanoseconds > PENALTY_THRESHOLD_MS * ONE_MILLISECOND_IN_NANOSECONDS) {
-		puts("Making a thread sleep");
+		//puts("Making a thread sleep");
 		this->is_sleeping = true;
 		this->sleep_for_ms(PENALTY_SLEEP_MS);
 	}

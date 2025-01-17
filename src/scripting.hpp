@@ -37,7 +37,7 @@
 
 #define PENALTY_THRESHOLD_MS 500
 #define PENALTY_SLEEP_MS 2500
-#define TERMINATE_THREAD_AT_MS 5000
+#define TERMINATE_THREAD_AT_MS 2000
 
 class VM;
 class Script;
@@ -60,6 +60,9 @@ public:
 	size_t total_allocated_memory;  // Amount of bytes this VM is currently using
 	size_t memory_allocation_limit; // Maximum number of bytes this VM is allowed to use
 
+	bool is_any_script_sleeping;    // Are any script sleeping?
+	timespec earliest_wake_up_at;   // If any scripts are sleeping, earliest time any of them will wake up
+
 	void add_script(int entity_id, const char *code);
 	void remove_script(int entity_id);
 	RunThreadsStatus run_scripts();
@@ -70,14 +73,17 @@ public:
 };
 
 class Script {
-	int thread_reference;      // Used with lua_ref() to store a reference to the thread, and prevent it from being garbage collected
+	int thread_reference;         // Used with lua_ref() to store a reference to the thread, and prevent it from being garbage collected
 	bool was_scheduled_yet;
 	std::unordered_set <std::unique_ptr<ScriptThread>> threads;
 
 public:
-	int entity_id;             // Entity that this script controls (if negative, it's temporary)
+	int entity_id;                // Entity that this script controls (if negative, it's temporary)
 
-	VM *vm;                    // VM containing the script's own global table and all of its threads
+	bool is_any_thread_sleeping;  // Is any thread currently sleeping?
+	timespec earliest_wake_up_at; // If any thread is sleeping, then it's the earliest time any of them will wake up
+
+	VM *vm;                       // VM containing the script's own global table and all of its threads
 	lua_State *L;
 
 	bool compile_and_start(const char *code);
@@ -127,3 +133,4 @@ public:
 // Prototypes
 void register_lua_api(lua_State* L);
 void set_timespec_now_plus_ms(struct timespec &ts, unsigned long ms);
+bool is_ts_earlier(timespec now, timespec future);
