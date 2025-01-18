@@ -79,10 +79,12 @@ void callback_interrupt(lua_State* L, int gc) {
 	}
 }
 
-VM::VM() {
+VM::VM(int user_id) {
 	puts("new VM");
+	this->user_id = user_id;
 	this->total_allocated_memory = 0;
 	this->memory_allocation_limit = 2*1024*1024;
+	this->incoming_message_future = incoming_message_promise.get_future();
 
 	this->L = lua_newstate(lua_allocator, this);
     luaL_openlibs(this->L);
@@ -197,6 +199,28 @@ RunThreadsStatus VM::run_scripts() {
 	if (all_scripts_waiting)
 		return RUN_THREADS_ALL_WAITING;
 	return RUN_THREADS_KEEP_GOING;
+}
+
+void VM::receive_message(VM_MessageType type, unsigned int entity_id, unsigned int other_id, int variable, size_t data_len, void *data) {
+	VM_Message new_message;
+	new_message.type      = type;
+	new_message.user_id   = this->user_id;
+	new_message.entity_id = entity_id;
+	new_message.other_id  = other_id;
+	new_message.variable  = variable;
+	new_message.data_len  = data_len;
+
+	if (data != nullptr) {
+		new_message.data = malloc(data_len);
+		memcpy(new_message.data, data, data_len);
+	} else {
+		new_message.data  = nullptr;
+	}
+	time(&new_message.received_at);
+
+	const std::lock_guard<std::mutex> lock(this->incoming_message_mutex);
+	this->incoming_message_promise.set_value(new_message);
+	this->have_incoming_message = true;
 }
 
 ///////////////////////////////////////////////////////////
@@ -372,6 +396,7 @@ ScriptThread::ScriptThread(Script *s) {
 	this->total_nanoseconds = 0;
 	this->is_sleeping = false;
 	this->is_waiting_for_api = false;
+	this->have_api_response = false;
 	this->is_thread_stopped = false;
 	this->was_scheduled_yet = false;
 }
@@ -482,4 +507,28 @@ void ScriptThread::sleep_for_ms(int ms) {
 		this->wake_up_at.tv_sec += desired_nanoseconds / ONE_SECOND_IN_NANOSECONDS;
 	}
 	this->wake_up_at.tv_nsec = desired_nanoseconds % ONE_SECOND_IN_NANOSECONDS;
+}
+
+void ScriptThread::send_message(VM_MessageType type, unsigned int other_id, int variable, size_t data_len, void *data) {
+/*
+	VM_Message new_message;
+	new_message.type      = type;
+	new_message.user_id   = this->script->vm->user_id;
+	new_message.entity_id = this->script->entity_id;
+	new_message.other_id  = other_id;
+	new_message.variable  = variable;
+	new_message.data_len  = data_len;
+
+	if (data != nullptr) {
+		new_message.data = malloc(data_len);
+		memcpy(new_message.data, data, data_len);
+	} else {
+		new_message.data  = nullptr;
+	}
+	time(&new_message.received_at);
+
+	const std::lock_guard<std::mutex> lock(outgoing_messages_mtx);
+	outgoing_messages.push(new_message);
+	have_outgoing_message = true;
+*/
 }
