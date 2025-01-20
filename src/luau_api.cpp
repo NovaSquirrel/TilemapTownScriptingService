@@ -249,10 +249,9 @@ static int tt_tt_sleep(lua_State* L) {
 	return lua_break(L);
 }
 static int tt_tt_get_result(lua_State *L) {
-	int key = luaL_checkinteger(L, 1);
-
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread) {
+		int key = thread->api_response_key;
 		auto it = thread->script->vm->api_results.find(key);
 		if(it != thread->script->vm->api_results.end()) {
 			VM_Message message = (*it).second;
@@ -345,7 +344,7 @@ static int tt_tt_reset_callbacks(lua_State* L) {
 static int tt_entity_object_who(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "e_who", false, 1, "E");
+		return thread->send_api_call(L, "e_who", true, 1, "E");
 	return 0;
 }
 static int tt_entity_object_move(lua_State* L) {
@@ -408,7 +407,7 @@ static int tt_entity_object_set_mini_tilemap(lua_State* L) {
 static int tt_entity_object_clone(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "e_clone", true, 2, "Eb");
+		return thread->send_api_call(L, "e_clone", true, 2, "Et");
 	return 0;
 }
 static int tt_entity_object_delete(lua_State* L) {

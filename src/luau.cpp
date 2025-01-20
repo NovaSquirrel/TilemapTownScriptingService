@@ -23,6 +23,11 @@
 
 ///////////////////////////////////////////////////////////
 
+extern size_t all_vms_bytecode_size;
+extern char *all_vms_bytecode;
+
+///////////////////////////////////////////////////////////
+
 void put_32(unsigned int x) {
 	putchar((x) & 255);
 	putchar((x >> 8) & 255);
@@ -120,6 +125,7 @@ VM::VM(int user_id) {
 	this->L = lua_newstate(lua_allocator, this);
     luaL_openlibs(this->L);
 	register_lua_api(this->L);
+	this->run_code_on_self(all_vms_bytecode, all_vms_bytecode_size);
 	luaL_sandbox(this->L);
 	lua_setthreaddata(this->L, NULL);
 
@@ -136,15 +142,22 @@ VM::~VM() {
 	lua_close(this->L);
 }
 
-void VM::add_script(int entity_id, const char *code, size_t code_size) {
+void VM::add_script(int entity_id) {
 	Script *script = new Script(this, entity_id);
-	script->compile_and_start(code, code_size);
-	this->scripts.insert(std::unique_ptr<Script>(script) );
+	this->scripts[entity_id] = std::unique_ptr<Script>(script);
+}
+
+void VM::run_code_on_script(int entity_id, const char *code, size_t code_size) {
+	auto it = this->scripts.find(entity_id);
+	if(it != this->scripts.end()) {
+		Script *script = (*it).second.get();
+		script->compile_and_start(code, code_size);
+	}
 }
 
 void VM::remove_script(int entity_id) {
 	for (auto itr = this->scripts.begin(); itr != this->scripts.end(); ) {
-		Script *script = (*itr).get();
+		Script *script = (*itr).second.get();
 
 		if (script->entity_id == entity_id) {
 			itr = this->scripts.erase(itr);
@@ -152,6 +165,15 @@ void VM::remove_script(int entity_id) {
 			++itr;
 		}
 	}
+}
+
+void VM::run_code_on_self(const char *bytecode, size_t bytecode_size) {
+	int result = luau_load(this->L, "init", bytecode, bytecode_size, 0);
+	if (result) {
+		fprintf(stderr, "Failed to load script into VM: %s\n", lua_tostring(this->L, -1));
+		exit(1);
+	}
+	lua_pcall(L, 0, LUA_MULTRET, 0);
 }
 
 RunThreadsStatus VM::run_scripts() {
@@ -173,7 +195,7 @@ RunThreadsStatus VM::run_scripts() {
 		bool any_scripts_newly_scheduled = false;
 
 		for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ++itr) {
-			Script *script = (*itr).get();
+			Script *script = (*itr).second.get();
 			if (script->was_scheduled_yet) {
 				#ifdef SCHEDULING_PRINTS
 				fprintf(stderr, "script %p already scheduled\n", script);
@@ -219,7 +241,7 @@ RunThreadsStatus VM::run_scripts() {
 		if (!any_scripts_newly_scheduled) { // Give everything another chance to run, because the entire list was marked as already scheduled
 			trying_again_after_clearing_scheduled_flag = true;
 			for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ++itr) {
-				(*itr).get()->was_scheduled_yet = false;
+				(*itr).second.get()->was_scheduled_yet = false;
 			}
 		} else
 			break;
@@ -383,6 +405,8 @@ RunThreadsStatus Script::run_threads() {
 			if (thread->is_waiting_for_api) {
 				auto it = this->vm->api_results.find(thread->api_response_key);
 				if(it != this->vm->api_results.end()) {
+					//fprintf(stderr, "Unblocking thread because it got %d\n", thread->api_response_key);
+
 					// Value will be retrieved via tt._result()
 					thread->is_waiting_for_api = false;
 				} else {
@@ -682,6 +706,7 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 		this->is_waiting_for_api = true;
 		time(&this->started_waiting_for_api_at);
 		this->api_response_key = this->script->vm->next_api_result_key++;
+		//fprintf(stderr, "Expecting response key %d\n", this->api_response_key);
 		this->send_message(VM_MESSAGE_API_CALL_GET, this->api_response_key, arg_count, out_buffer, write - out_buffer);
 		return lua_break(L);
 	}

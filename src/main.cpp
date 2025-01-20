@@ -22,6 +22,8 @@
 #include <chrono>
 
 std::mutex outgoing_messages_mtx;
+size_t all_vms_bytecode_size;
+char *all_vms_bytecode;
 
 ///////////////////////////////////////////////////////////
 
@@ -53,7 +55,7 @@ void vm_thread(VM *vm) {
 				VM_Message message = vm->incoming_messages.front();
 				bool free_data = true;
 
-				fprintf(stderr, "Received something\n");
+				//fprintf(stderr, "Received something\n");
 				switch (message.type) {
 					case VM_MESSAGE_PING:
 						vm->send_message(VM_MESSAGE_PONG, message.other_id, message.status, nullptr, 0);
@@ -63,8 +65,11 @@ void vm_thread(VM *vm) {
 						break;
 					case VM_MESSAGE_SHUTDOWN:
 						break;
+					case VM_MESSAGE_RUN_CODE:
+						vm->run_code_on_script(message.entity_id, (const char*)message.data, message.data_len);
+						break;
 					case VM_MESSAGE_START_SCRIPT:
-						vm->add_script(message.entity_id, (const char*)message.data, message.data_len);
+						vm->add_script(message.entity_id);
 						break;
 					case VM_MESSAGE_STOP_SCRIPT:
 						vm->remove_script(message.entity_id);
@@ -72,6 +77,7 @@ void vm_thread(VM *vm) {
 					case VM_MESSAGE_API_CALL:
 						break;
 					case VM_MESSAGE_API_CALL_GET:
+						fprintf(stderr, "Got response key %d\n", message.other_id);
 						vm->api_results[message.other_id] = message;
 						free_data = false;
 						break;
@@ -127,19 +133,27 @@ void test(VM *l) {
 
 //	const char *test_script = "print(\"Hello!\")";
 //	const char *test_script = "print(tt.from_json(\"[1, 2, 3, 4]\"))";
-	const char *test_script = "local e = entity.me(); print(\"it's\"); print(e); e:say(\"Hello world\"); print(\"Printing too\");";
+//	const char *test_script = "local e = entity.me(); print(\"it's\"); print(e); e:say(\"Hello world\"); print(\"Printing too\");";
+	const char *test_script = "print(\"going to call function\"); print(storage.load(\"loading test\")); print(\"after the load\")";
 
 	std::this_thread::sleep_for(std::chrono::seconds(2));
-	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, (void*)test_script, strlen(test_script)+MESSAGE_HEADER_SIZE);
+	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, nullptr, 0);
+	l->receive_message(VM_MESSAGE_RUN_CODE, 5, 0, 0, (void*)test_script, strlen(test_script)+MESSAGE_HEADER_SIZE);
 	std::this_thread::sleep_for(std::chrono::seconds(2));
-//	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, 0, nullptr);
-	std::this_thread::sleep_for(std::chrono::seconds(2));
-//	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, 0, nullptr);
+//	std::this_thread::sleep_for(std::chrono::seconds(2));
+
+	char api_got[] = {3, 123, 0, 0, 0};
+	l->receive_message(VM_MESSAGE_API_CALL_GET, 5, 1, 1, (void*)api_got, strlen(test_script)+MESSAGE_HEADER_SIZE);
 
 	t1.join();
 }
 
 int main(void) {
+	// Compile the global script first
+	const char *script_to_load_into_all_vms = "for k, v in {{\"entity\", \"new\"},{\"map\", \"who\"},{\"map\", \"turf_at\"},{\"map\", \"objs_at\"},{\"map\", \"dense_at\"},{\"map\", \"tile_info\"},{\"map\", \"map_info\"},{\"map\", \"within_map\"},{\"storage\", \"load\"},{\"storage\", \"list\"},{\"Entity\", \"who\"},{\"Entity\", \"clone\"}} do local original = _G[v[1]][v[2]]; _G[v[1]][v[2]] = function(...) original(unpack({...})); return tt._result(); end; end";
+
+	all_vms_bytecode = luau_compile(script_to_load_into_all_vms, strlen(script_to_load_into_all_vms), NULL, &all_vms_bytecode_size);
+
 	VM l = VM(1);
 	test(&l);
 }

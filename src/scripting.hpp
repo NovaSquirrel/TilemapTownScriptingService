@@ -66,7 +66,8 @@ enum VM_MessageType {
 	VM_MESSAGE_PONG,          // No arguments (still includes a length count of zero)
 	VM_MESSAGE_VERSION_CHECK, // User ID = 0, Entity ID = 0, Other = Version number
 	VM_MESSAGE_SHUTDOWN,      // No arguments (still includes a length count of zero)
-	VM_MESSAGE_START_SCRIPT,  // User ID, Entity ID, Other = Source code ID, Status = 0  | Data = code to run
+	VM_MESSAGE_START_SCRIPT,  // User ID, Entity ID, Other = Source code ID, Status = 0
+	VM_MESSAGE_RUN_CODE,      // User ID, Entity ID, Other = Source code ID, Status = 0  | Data = code to run 
 	VM_MESSAGE_STOP_SCRIPT,   // User ID, Entity ID, Other = 0, Status = 0
 	VM_MESSAGE_API_CALL,      // User ID, Entity ID, Other = API result key, Status = argument/result count | Data = data given or returned (or it may be in the status) - Does not request a response
 	VM_MESSAGE_API_CALL_GET,  // User ID, Entity ID, Other = API result key, Status = argument/result count | Data = data given or returned (or it may be in the status) - Requests that information be returned
@@ -103,7 +104,7 @@ struct VM_Message {
 ///////////////////////////////////////////////////////////
 
 class VM {
-	std::unordered_set <std::unique_ptr<Script>> scripts;
+	std::unordered_map<int, std::unique_ptr<Script>> scripts;
 	lua_State *L;
 
 public:
@@ -127,7 +128,9 @@ public:
 
 	void receive_message(VM_MessageType type, int entity_id, int other_id, unsigned char status, void *data, size_t data_len);
 	void send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len);
-	void add_script(int entity_id, const char *code, size_t code_size);
+	void add_script(int entity_id);
+	void run_code_on_self(const char *bytecode, size_t bytecode_size);
+	void run_code_on_script(int entity_id, const char *code, size_t code_size);
 	void remove_script(int entity_id);
 	RunThreadsStatus run_scripts();
 
