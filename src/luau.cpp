@@ -23,6 +23,35 @@
 
 ///////////////////////////////////////////////////////////
 
+void put_32(unsigned int x) {
+	putchar((x) & 255);
+	putchar((x >> 8) & 255);
+	putchar((x >> 16) & 255);
+	putchar((x >> 24) & 255);
+}
+
+void send_outgoing_message(VM_MessageType type, unsigned int user_id, int entity_id, unsigned int other_id, unsigned char status, void *data, size_t data_len) {
+	size_t written_len = data_len + MESSAGE_HEADER_SIZE;
+
+	fprintf(stderr, "Writing an outgoing message\n");
+
+	const std::lock_guard<std::mutex> lock(outgoing_messages_mtx);
+	// TT LL-LL-LL UU-UU-UU-UU EE-EE-EE-EE OO-OO-OO-OO SS [rest of it is the arbitrary data]
+	putchar(type);
+	putchar((written_len)     & 255);
+	putchar((written_len>>8)  & 255);
+	putchar((written_len>>16) & 255);
+	put_32(user_id);
+	put_32(entity_id);
+	put_32(other_id);
+	putchar(status);
+	if (data)
+		fwrite(data, 1, data_len, stdout);
+	fflush(stdout);
+}
+
+///////////////////////////////////////////////////////////
+
 void *lua_allocator(void *ud, void *ptr, size_t osize, size_t nsize) {
 	class VM *l = (VM*)ud;
 	if ((l->total_allocated_memory - osize + nsize) > l->memory_allocation_limit)
@@ -80,11 +109,13 @@ void callback_interrupt(lua_State* L, int gc) {
 }
 
 VM::VM(int user_id) {
-	puts("new VM");
+	fprintf(stderr, "new VM\n");
 	this->user_id = user_id;
 	this->total_allocated_memory = 0;
 	this->memory_allocation_limit = 2*1024*1024;
 	this->incoming_message_future = incoming_message_promise.get_future();
+	this->have_incoming_message = false;
+	this->next_api_result_key = 1;
 
 	this->L = lua_newstate(lua_allocator, this);
     luaL_openlibs(this->L);
@@ -101,13 +132,13 @@ VM::VM(int user_id) {
 }
 
 VM::~VM() {
-	puts("del VM");
+	fprintf(stderr, "del VM\n");
 	lua_close(this->L);
 }
 
-void VM::add_script(int entity_id, const char *code) {
+void VM::add_script(int entity_id, const char *code, size_t code_size) {
 	Script *script = new Script(this, entity_id);
-	script->compile_and_start(code);
+	script->compile_and_start(code, code_size);
 	this->scripts.insert(std::unique_ptr<Script>(script) );
 }
 
@@ -125,7 +156,7 @@ void VM::remove_script(int entity_id) {
 
 RunThreadsStatus VM::run_scripts() {
 	#ifdef SCHEDULING_PRINTS
-	printf("VM - running scripts - %ld\n", this->scripts.size());
+	fprintf(stderr, "VM - running scripts - %ld\n", this->scripts.size());
 	#endif
 	bool any_scripts_not_done; // At least one script needs to be resumed in the future
 	bool all_scripts_waiting;  // All scripts are waiting on a timer or API result or something else
@@ -145,19 +176,19 @@ RunThreadsStatus VM::run_scripts() {
 			Script *script = (*itr).get();
 			if (script->was_scheduled_yet) {
 				#ifdef SCHEDULING_PRINTS
-				printf("script %p already scheduled\n", script);
+				fprintf(stderr, "script %p already scheduled\n", script);
 				#endif
 				continue;
 			}
 			#ifdef SCHEDULING_PRINTS
-			printf("script %p NOT already scheduled\n", script);
+			fprintf(stderr, "script %p NOT already scheduled\n", script);
 			#endif
 			script->was_scheduled_yet = true;
 			any_scripts_newly_scheduled = true;
 
 			RunThreadsStatus status = script->run_threads();
 			#ifdef SCHEDULING_PRINTS
-			printf("Script status %d\n", status);
+			fprintf(stderr, "Script status %d\n", status);
 			#endif
 
 			switch (status) {
@@ -201,13 +232,13 @@ RunThreadsStatus VM::run_scripts() {
 	return RUN_THREADS_KEEP_GOING;
 }
 
-void VM::receive_message(VM_MessageType type, unsigned int entity_id, unsigned int other_id, int variable, size_t data_len, void *data) {
+void VM::receive_message(VM_MessageType type, int entity_id, int other_id, unsigned char status, void *data, size_t data_len) {
 	VM_Message new_message;
 	new_message.type      = type;
 	new_message.user_id   = this->user_id;
 	new_message.entity_id = entity_id;
 	new_message.other_id  = other_id;
-	new_message.variable  = variable;
+	new_message.status    = status;
 	new_message.data_len  = data_len;
 
 	if (data != nullptr) {
@@ -219,8 +250,15 @@ void VM::receive_message(VM_MessageType type, unsigned int entity_id, unsigned i
 	time(&new_message.received_at);
 
 	const std::lock_guard<std::mutex> lock(this->incoming_message_mutex);
-	this->incoming_message_promise.set_value(new_message);
-	this->have_incoming_message = true;
+	this->incoming_messages.push(new_message);
+	if (!this->have_incoming_message) {
+		this->incoming_message_promise.set_value();
+		this->have_incoming_message = true;
+	}
+}
+
+void VM::send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len) {
+	send_outgoing_message(type, this->user_id, 0, other_id, status, data, data_len);
 }
 
 ///////////////////////////////////////////////////////////
@@ -247,11 +285,11 @@ Script::~Script() {
 	lua_gc(this->L, LUA_GCCOLLECT, 0);
 }
 
-bool Script::compile_and_start(const char *source) {
+bool Script::compile_and_start(const char *source, size_t source_len) {
 	size_t bytecodeSize = 0;
 
-	char* bytecode = luau_compile(source, strlen(source), NULL, &bytecodeSize);
-	//printf("Compiled; %ld bytes\n", bytecodeSize);
+	char* bytecode = luau_compile(source, source_len, NULL, &bytecodeSize);
+	//fprintf(stderr, "Compiled; %ld bytes\n", bytecodeSize);
 
 	int result = luau_load(this->L, "chunk", bytecode, bytecodeSize, 0);
 	if (result) {
@@ -297,7 +335,7 @@ void update_thread_wakeup_time(Script *s, ScriptThread *thread) {
 
 RunThreadsStatus Script::run_threads() {
 	#ifdef SCHEDULING_PRINTS
-	printf("\tScript %p - running scripts - %ld\n", this, this->threads.size());
+	fprintf(stderr, "\tScript %p - running scripts - %ld\n", this, this->threads.size());
 	#endif
 	bool any_threads_run = false;
 	bool trying_again_after_clearing_scheduled_flag = false;
@@ -312,19 +350,19 @@ RunThreadsStatus Script::run_threads() {
 			ScriptThread *thread = (*itr).get();
 			if (thread->was_scheduled_yet) {
 				#ifdef SCHEDULING_PRINTS
-				printf("\tthread %p already scheduled\n", thread);
+				fprintf(stderr, "\tthread %p already scheduled\n", thread);
 				#endif
 				++itr;
 				continue;
 			}
 			#ifdef SCHEDULING_PRINTS
-			printf("\tthread %p NOT already scheduled\n", thread);
+			fprintf(stderr, "\tthread %p NOT already scheduled\n", thread);
 			#endif
 			thread->was_scheduled_yet = true;
 			any_threads_newly_scheduled = true;
 
 			// If thread is sleeping, check if it's time to wake up
-			if(thread->is_sleeping) {
+			if (thread->is_sleeping) {
 				struct timespec now_ts;
 				clock_gettime(CLOCK_MONOTONIC, &now_ts);
 				if (now_ts.tv_sec < thread->wake_up_at.tv_sec) {
@@ -341,6 +379,24 @@ RunThreadsStatus Script::run_threads() {
 				}
 			}
 
+			// If thread is waiting for an API response, check if it's ready yet
+			if (thread->is_waiting_for_api) {
+				auto it = this->vm->api_results.find(thread->api_response_key);
+				if(it != this->vm->api_results.end()) {
+					// Value will be retrieved via tt._result()
+					thread->is_waiting_for_api = false;
+				} else {
+					// Still waiting for API response; waiting too long?
+					time_t now = time(NULL);
+					if (now - thread->started_waiting_for_api_at >= API_RESULT_TIMEOUT_IN_SECONDS) {
+						thread->is_waiting_for_api = false;
+					} else {
+						++itr;
+						continue;
+					}
+				}
+			}
+
 			// Thread is not sleeping, or has just woken up
 			bool old_any_threads_run = false;
 			any_threads_run = true;
@@ -349,7 +405,7 @@ RunThreadsStatus Script::run_threads() {
 			} else {
 				if (thread->was_preempted) { // If it was preempted, stop running any other threads
 					#ifdef SCHEDULING_PRINTS
-					puts("\tthread was preempted");
+					fprintf(stderr, "\tthread was preempted\n");
 					#endif
 					return RUN_THREADS_PREEMPTED;
 				}
@@ -396,7 +452,6 @@ ScriptThread::ScriptThread(Script *s) {
 	this->total_nanoseconds = 0;
 	this->is_sleeping = false;
 	this->is_waiting_for_api = false;
-	this->have_api_response = false;
 	this->is_thread_stopped = false;
 	this->was_scheduled_yet = false;
 }
@@ -425,12 +480,12 @@ int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state) {
 	this->total_nanoseconds += nanoseconds;
 
 	if(this->total_nanoseconds > TERMINATE_THREAD_AT_MS * ONE_MILLISECOND_IN_NANOSECONDS) {
-		//puts("Stopping a stuck thread");
+		//fprintf(stderr, "Stopping a stuck thread\n");
 		this->stop();
 		return LUA_OK;
 	}
 	if(this->nanoseconds > PENALTY_THRESHOLD_MS * ONE_MILLISECOND_IN_NANOSECONDS) {
-		//puts("Making a thread sleep");
+		//fprintf(stderr, "Making a thread sleep\n");
 		this->is_sleeping = true;
 		this->sleep_for_ms(PENALTY_SLEEP_MS);
 	}
@@ -481,7 +536,7 @@ bool ScriptThread::run() {
 		error += "\nstack backtrace:\n";
 		error += lua_debugtrace(this->L);
 
-		puts(error.c_str());
+		fprintf(stderr, "%s\n", error.c_str());
 	}
 	return true; // Thread finished and can be removed
 }
@@ -509,26 +564,125 @@ void ScriptThread::sleep_for_ms(int ms) {
 	this->wake_up_at.tv_nsec = desired_nanoseconds % ONE_SECOND_IN_NANOSECONDS;
 }
 
-void ScriptThread::send_message(VM_MessageType type, unsigned int other_id, int variable, size_t data_len, void *data) {
-/*
-	VM_Message new_message;
-	new_message.type      = type;
-	new_message.user_id   = this->script->vm->user_id;
-	new_message.entity_id = this->script->entity_id;
-	new_message.other_id  = other_id;
-	new_message.variable  = variable;
-	new_message.data_len  = data_len;
+void ScriptThread::send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len) {
+	send_outgoing_message(type, this->script->vm->user_id, this->script->entity_id, other_id, status, data, data_len);
+}
 
-	if (data != nullptr) {
-		new_message.data = malloc(data_len);
-		memcpy(new_message.data, data, data_len);
-	} else {
-		new_message.data  = nullptr;
+void lua_c_function_parameter_check(lua_State *L, int param_count, const char *arguments) {
+	int arg_count = lua_gettop(L);
+	if (param_count > 0 && param_count != arg_count) {
+		luaL_error(L, "Function needs exactly %d arguments (got %d)", param_count, arg_count);
 	}
-	time(&new_message.received_at);
+	if (param_count < 0 && arg_count < -param_count) {
+		luaL_error(L, "Function needs at least %d arguments (got %d)", -param_count, arg_count);
+	}
 
-	const std::lock_guard<std::mutex> lock(outgoing_messages_mtx);
-	outgoing_messages.push(new_message);
-	have_outgoing_message = true;
-*/
+	// Check for proper parameters
+	for (int i=0; i<abs(param_count); i++) {
+		switch (arguments[i]) {
+			case 'E': // Entity
+				luaL_checktype(L, i+1, LUA_TTABLE); // Add a further check here?
+				continue;
+			case 'b': // Boolean
+				luaL_checktype(L, i+1, LUA_TBOOLEAN);
+				continue;
+			case 's': // String
+				luaL_checktype(L, i+1, LUA_TSTRING);
+				continue;
+			case 'n': // Number
+				luaL_checktype(L, i+1, LUA_TNUMBER);
+				continue;
+			case 'i': // Integer
+				luaL_checktype(L, i+1, LUA_TNUMBER);
+				if (lua_tonumber(L, i+1) != lua_tointeger(L, i+1))
+					luaL_typeerrorL(L, i+1, "integer");
+				continue;
+			case 'I': // String or integer
+				if (lua_type(L, i+1) != LUA_TNUMBER && lua_type(L, i+1) != LUA_TSTRING)
+					luaL_typeerrorL(L, i+1, "integer or string");
+				continue;
+			case 't': // Table
+				luaL_checktype(L, i+1, LUA_TTABLE);
+				continue;
+			default:
+				break;
+		}
+	}
+}
+
+int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool request_response, int param_count, const char *arguments) {
+	int arg_count = lua_gettop(L);
+	lua_c_function_parameter_check(L, param_count, arguments);
+
+	unsigned char out_buffer[0x10000];
+	unsigned char *write = out_buffer;
+	unsigned char *buffer_end = out_buffer + sizeof(out_buffer);
+
+	int n;
+	const char *s;
+	size_t l;
+	for (int i=0; i<arg_count; i++) {
+		switch (arguments[i]) {
+			case 0:
+				i = arg_count; // Halt
+				break;
+			case 'E': // Entity
+				if ((write + 5) >= buffer_end)
+					return 0;
+				lua_getfield(L, i+1, "_id");
+				*(write++) = API_VALUE_INTEGER;
+				n = lua_tointeger(L, -1);
+				*((int*)write) = n;
+				write += 4;
+				lua_pop(L, 1);
+				continue;
+			case 'b': // Boolean
+				if ((write + 1) >= buffer_end)
+					return 0;
+				*(write++) = API_VALUE_FALSE + lua_toboolean(L, i+1);
+				continue;
+			case 'I': // String or integer
+			case 's': // String
+				if ((write + 1) >= buffer_end)
+					return 0;
+				*(write++) = API_VALUE_STRING;
+				s = luaL_tolstring(L, i+1, &l);
+				*((int*)write) = l;
+				if ((write + l + 4) >= buffer_end)
+					return 0;
+				write += 4;
+				memcpy(write, s, l);
+				lua_pop(L, 1);
+				write += l;
+				continue;
+			case 'n': // Number
+			case 'i': // Integer
+				if ((write + 5) >= buffer_end)
+					return 0;
+				*(write++) = API_VALUE_INTEGER;
+				n = lua_tointeger(L, i+1);
+				*((int*)write) = n;
+				write += 4;
+				continue;
+			case 't': // Table
+				if ((write + 1) >= buffer_end)
+					return 0;
+				*(write++) = API_VALUE_TABLE;
+				// Convert to JSON?
+				break;
+			default:
+				break;
+		}
+	}
+
+	if (!request_response) {
+		this->send_message(VM_MESSAGE_API_CALL, 0, arg_count, out_buffer, write - out_buffer);
+		return 0;
+	} else {
+		this->is_waiting_for_api = true;
+		time(&this->started_waiting_for_api_at);
+		this->api_response_key = this->script->vm->next_api_result_key++;
+		this->send_message(VM_MESSAGE_API_CALL_GET, this->api_response_key, arg_count, out_buffer, write - out_buffer);
+		return lua_break(L);
+	}
 }

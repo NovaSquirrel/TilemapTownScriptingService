@@ -22,9 +22,6 @@
 #include <chrono>
 
 std::mutex outgoing_messages_mtx;
-std::condition_variable outgoing_messages_cv;
-std::queue<VM_Message> outgoing_messages;
-std::atomic_bool have_outgoing_message;
 
 ///////////////////////////////////////////////////////////
 
@@ -48,68 +45,96 @@ bool is_ts_earlier(timespec now, timespec future) {
 ///////////////////////////////////////////////////////////
 
 void vm_thread(VM *vm) {
-
-	vm->add_script(5, "eee = {}; for i = 1,10 do eee[i] = i; print(i) end");
-	vm->add_script(6, "print(1)");
-	vm->add_script(7, "print(123)");
-	vm->add_script(8, "print(1234)");
-	vm->add_script(9, "print(12345)");
-	vm->add_script(10, "while true do print(\"eep\"); tt.sleep(1000); end");
-//	vm->add_script(11, "while true do end");
-
 	while (true) {
 		if (vm->have_incoming_message) {
 			const std::lock_guard<std::mutex> lock(vm->incoming_message_mutex);
 			
-			puts("Got incoming message");
-			// TODO: Handle it
+			while(!vm->incoming_messages.empty()) {
+				VM_Message message = vm->incoming_messages.front();
+				bool free_data = true;
+
+				fprintf(stderr, "Received something\n");
+				switch (message.type) {
+					case VM_MESSAGE_PING:
+						vm->send_message(VM_MESSAGE_PONG, message.other_id, message.status, nullptr, 0);
+						break;
+					case VM_MESSAGE_VERSION_CHECK:
+						vm->send_message(VM_MESSAGE_VERSION_CHECK, 0, 1, nullptr, 0);
+						break;
+					case VM_MESSAGE_SHUTDOWN:
+						break;
+					case VM_MESSAGE_START_SCRIPT:
+						vm->add_script(message.entity_id, (const char*)message.data, message.data_len);
+						break;
+					case VM_MESSAGE_STOP_SCRIPT:
+						vm->remove_script(message.entity_id);
+						break;
+					case VM_MESSAGE_API_CALL:
+						break;
+					case VM_MESSAGE_API_CALL_GET:
+						vm->api_results[message.other_id] = message;
+						free_data = false;
+						break;
+					case VM_MESSAGE_CALLBACK:
+						break;
+					default:
+						break;
+				}
+
+				// Remove it from the queue
+				vm->incoming_messages.pop();
+				if (free_data && message.data)
+					free(message.data);
+			}
 
 			// Replace the promise and future
-			vm->incoming_message_promise = std::promise<VM_Message>();
+			vm->incoming_message_promise = std::promise<void>();
 			vm->incoming_message_future = vm->incoming_message_promise.get_future();
 			vm->have_incoming_message = false;
 		}
 
 		RunThreadsStatus status = vm->run_scripts();
-		printf("VM run scripts status: %d\n", status);
-		if (status == RUN_THREADS_ALL_WAITING) {
-			puts("All threads are waiting");
-			if(vm->is_any_script_sleeping) {
-				puts("Sleeping...");
-				struct timespec now_ts;
-				clock_gettime(CLOCK_MONOTONIC, &now_ts);
-				if (is_ts_earlier(now_ts, vm->earliest_wake_up_at)) {
-					timespec d = diff_ts(now_ts, vm->earliest_wake_up_at);
-					vm->incoming_message_future.wait_for(std::chrono::nanoseconds(d.tv_sec * ONE_SECOND_IN_NANOSECONDS + d.tv_nsec));
+		fprintf(stderr, "VM run scripts status: %d\n", status);
+		switch (status) {
+			case RUN_THREADS_ALL_WAITING:
+				puts("All threads are waiting");
+				if(vm->is_any_script_sleeping) {
+					fprintf(stderr, "Sleeping...\n");
+					struct timespec now_ts;
+					clock_gettime(CLOCK_MONOTONIC, &now_ts);
+					if (is_ts_earlier(now_ts, vm->earliest_wake_up_at)) {
+						timespec d = diff_ts(now_ts, vm->earliest_wake_up_at);
+						vm->incoming_message_future.wait_for(std::chrono::nanoseconds(d.tv_sec * ONE_SECOND_IN_NANOSECONDS + d.tv_nsec));
+					} else {
+						fprintf(stderr, "Waiting for something in the past");
+						continue;
+					}
 				} else {
-					puts("Waiting for something in the past");
-					continue;
+					vm->incoming_message_future.wait();
 				}
-			} else {
+				break;
+			case RUN_THREADS_FINISHED:
 				vm->incoming_message_future.wait();
-			}
+				break;
+			default:
+				break;
 		}
 	}
-
-
-	vm->remove_script(5);
-	vm->remove_script(6);
-	vm->remove_script(7);
-	vm->remove_script(8);
-	vm->remove_script(9);
-	vm->remove_script(10);
-//	vm->remove_script(11);
 }
 
 void test(VM *l) {
 	std::thread t1(vm_thread, l);
 
+//	const char *test_script = "print(\"Hello!\")";
+//	const char *test_script = "print(tt.from_json(\"[1, 2, 3, 4]\"))";
+	const char *test_script = "local e = entity.me(); print(\"it's\"); print(e); e:say(\"Hello world\"); print(\"Printing too\");";
+
 	std::this_thread::sleep_for(std::chrono::seconds(2));
-	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, 0, nullptr);
+	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, (void*)test_script, strlen(test_script)+MESSAGE_HEADER_SIZE);
 	std::this_thread::sleep_for(std::chrono::seconds(2));
-	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, 0, nullptr);
+//	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, 0, nullptr);
 	std::this_thread::sleep_for(std::chrono::seconds(2));
-	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, 0, nullptr);
+//	l->receive_message(VM_MESSAGE_START_SCRIPT, 5, 0, 0, 0, nullptr);
 
 	t1.join();
 }
