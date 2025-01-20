@@ -28,6 +28,22 @@ extern char *all_vms_bytecode;
 
 ///////////////////////////////////////////////////////////
 
+// From https://stackoverflow.com/a/6749766
+timespec diff_ts(timespec start, timespec end) {
+	timespec temp;
+	if ((end.tv_nsec-start.tv_nsec)<0) {
+		temp.tv_sec = end.tv_sec - start.tv_sec - 1;
+		temp.tv_nsec = 1000000000 + end.tv_nsec-start.tv_nsec;
+	} else {
+		temp.tv_sec = end.tv_sec - start.tv_sec;
+		temp.tv_nsec = end.tv_nsec - start.tv_nsec;
+	}
+	return temp;
+}
+
+bool is_ts_earlier(timespec now, timespec future) {
+	return (now.tv_sec < future.tv_sec) || (now.tv_sec == future.tv_sec && now.tv_nsec < future.tv_nsec);
+}
 void put_32(unsigned int x) {
 	putchar((x) & 255);
 	putchar((x >> 8) & 255);
@@ -128,6 +144,7 @@ VM::VM(int user_id) {
 	this->run_code_on_self(all_vms_bytecode, all_vms_bytecode_size);
 	luaL_sandbox(this->L);
 	lua_setthreaddata(this->L, NULL);
+	lua_gc(this->L, LUA_GCCOLLECT, 0);
 
 	lua_Callbacks* cb = lua_callbacks(this->L);
 	cb->userthread = callback_userthread;
@@ -156,14 +173,10 @@ void VM::run_code_on_script(int entity_id, const char *code, size_t code_size) {
 }
 
 void VM::remove_script(int entity_id) {
-	for (auto itr = this->scripts.begin(); itr != this->scripts.end(); ) {
-		Script *script = (*itr).second.get();
-
-		if (script->entity_id == entity_id) {
-			itr = this->scripts.erase(itr);
-		} else {
-			++itr;
-		}
+	auto it = this->scripts.find(entity_id);
+	if(it != this->scripts.end()) {
+		(*it).second.get()->shutdown();
+		this->scripts.erase(it);
 	}
 }
 
@@ -281,6 +294,106 @@ void VM::receive_message(VM_MessageType type, int entity_id, int other_id, unsig
 
 void VM::send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len) {
 	send_outgoing_message(type, this->user_id, 0, other_id, status, data, data_len);
+}
+
+void VM::thread_function() {
+	bool quitting = false;
+	while (!quitting) {
+		if (this->have_incoming_message) {
+			const std::lock_guard<std::mutex> lock(this->incoming_message_mutex);
+			
+			while(!this->incoming_messages.empty()) {
+				VM_Message message = this->incoming_messages.front();
+				bool free_data = true;
+
+				//fprintf(stderr, "Received something\n");
+				switch (message.type) {
+					case VM_MESSAGE_PING:
+						this->send_message(VM_MESSAGE_PONG, message.other_id, message.status, nullptr, 0);
+						break;
+					case VM_MESSAGE_VERSION_CHECK:
+						this->send_message(VM_MESSAGE_VERSION_CHECK, 0, 1, nullptr, 0);
+						break;
+					case VM_MESSAGE_SHUTDOWN:
+						for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ) {
+							Script *script = (*itr).second.get();
+							script->shutdown();
+							itr = this->scripts.erase(itr);
+						}
+						quitting = true;
+						break;
+					case VM_MESSAGE_RUN_CODE:
+						this->run_code_on_script(message.entity_id, (const char*)message.data, message.data_len);
+						break;
+					case VM_MESSAGE_START_SCRIPT:
+						this->add_script(message.entity_id);
+						break;
+					case VM_MESSAGE_STOP_SCRIPT:
+						this->remove_script(message.entity_id);
+						break;
+					case VM_MESSAGE_API_CALL:
+						break;
+					case VM_MESSAGE_API_CALL_GET:
+						fprintf(stderr, "Got response key %d\n", message.other_id);
+						this->api_results[message.other_id] = message;
+						free_data = false;
+						break;
+					case VM_MESSAGE_CALLBACK:
+						break;
+					default:
+						break;
+				}
+
+				// Remove it from the queue
+				this->incoming_messages.pop();
+				if (free_data && message.data)
+					free(message.data);
+			}
+
+			// Replace the promise and future
+			this->incoming_message_promise = std::promise<void>();
+			this->incoming_message_future = this->incoming_message_promise.get_future();
+			this->have_incoming_message = false;
+		}
+		if (quitting)
+			break;
+
+		RunThreadsStatus status = this->run_scripts();
+		fprintf(stderr, "VM run scripts status: %d\n", status);
+		switch (status) {
+			case RUN_THREADS_ALL_WAITING:
+				puts("All threads are waiting");
+				if(this->is_any_script_sleeping) {
+					fprintf(stderr, "Sleeping...\n");
+					struct timespec now_ts;
+					clock_gettime(CLOCK_MONOTONIC, &now_ts);
+					if (is_ts_earlier(now_ts, this->earliest_wake_up_at)) {
+						timespec d = diff_ts(now_ts, this->earliest_wake_up_at);
+						this->incoming_message_future.wait_for(std::chrono::nanoseconds(d.tv_sec * ONE_SECOND_IN_NANOSECONDS + d.tv_nsec));
+					} else {
+						fprintf(stderr, "Waiting for something in the past");
+						continue;
+					}
+				} else {
+					this->incoming_message_future.wait();
+				}
+				break;
+			case RUN_THREADS_FINISHED:
+				this->incoming_message_future.wait();
+				break;
+			default:
+				break;
+		}
+	}
+}
+
+void VM::start_thread() {
+	this->thread = std::thread(&VM::thread_function, this);
+}
+
+void VM::stop_thread() {
+	this->receive_message(VM_MESSAGE_SHUTDOWN, 0, 0, 0, nullptr, 0);
+	this->thread.join();
 }
 
 ///////////////////////////////////////////////////////////
@@ -457,6 +570,12 @@ RunThreadsStatus Script::run_threads() {
 	if(!any_threads_run)
 		return RUN_THREADS_ALL_WAITING;
 	return RUN_THREADS_KEEP_GOING;
+}
+
+bool Script::shutdown() {
+	// TODO
+	fprintf(stderr, "Shutting down script\n");
+	return true;
 }
 
 ///////////////////////////////////////////////////////////

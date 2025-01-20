@@ -95,7 +95,7 @@ struct VM_Message {
 	time_t received_at;     // To allow messages to expire
 	int user_id;            // VM ID
 	int entity_id;          // Script ID
-	unsigned int other_id;  // Callback IDs, API result keys
+	int other_id;           // Callback IDs, API result keys
 	unsigned char status;   // Miscellaneous use
 	size_t data_len;
 	void *data;
@@ -109,6 +109,7 @@ class VM {
 
 public:
 	int user_id;                    // User that this VM belongs to
+	std::thread thread;
 
 	size_t total_allocated_memory;  // Amount of bytes this VM is currently using
 	size_t memory_allocation_limit; // Maximum number of bytes this VM is allowed to use
@@ -132,6 +133,9 @@ public:
 	void run_code_on_self(const char *bytecode, size_t bytecode_size);
 	void run_code_on_script(int entity_id, const char *code, size_t code_size);
 	void remove_script(int entity_id);
+	void thread_function();
+	void start_thread();
+	void stop_thread();
 	RunThreadsStatus run_scripts();
 
 	VM(int user_id);
@@ -156,6 +160,7 @@ public:
 	bool compile_and_start(const char *source, size_t source_len);
 	bool start_callback();
 	RunThreadsStatus run_threads();
+	bool shutdown();
 
 	Script(VM *vm, int entity_id);
 	~Script();
