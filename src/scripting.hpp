@@ -59,6 +59,24 @@ enum RunThreadsStatus {
 	RUN_THREADS_PREEMPTED,
 };
 
+enum CallbackTypeID {
+	CALLBACK_MISC_SHUTDOWN,
+	CALLBACK_MAP_JOIN,
+	CALLBACK_MAP_LEAVE,
+	CALLBACK_MAP_CHAT,
+	CALLBACK_MAP_BUMP,
+	CALLBACK_SELF_PRIVATE_MESSAGE,
+	CALLBACK_SELF_GOT_PERMISSION,
+	CALLBACK_SELF_TOOK_CONTROLS,
+	CALLBACK_SELF_KEY_PRESS,
+	CALLBACK_SELF_CLICK,
+	CALLBACK_SELF_BOT_COMMAND_BUTTON,
+	CALLBACK_SELF_REQUEST_RECEIVED,
+	CALLBACK_SELF_USE,
+	CALLBACK_COUNT,
+	CALLBACK_INVALID,
+};
+
 ///////////////////////////////////////////////////////////
 
 enum VM_MessageType {
@@ -71,7 +89,8 @@ enum VM_MessageType {
 	VM_MESSAGE_STOP_SCRIPT,   // User ID, Entity ID, Other = 0, Status = 0
 	VM_MESSAGE_API_CALL,      // User ID, Entity ID, Other = API result key, Status = argument/result count | Data = data given or returned (or it may be in the status) - Does not request a response
 	VM_MESSAGE_API_CALL_GET,  // User ID, Entity ID, Other = API result key, Status = argument/result count | Data = data given or returned (or it may be in the status) - Requests that information be returned
-	VM_MESSAGE_CALLBACK,      // User ID, Entity ID, Other = Callback ID    | Data = callback data
+	VM_MESSAGE_CALLBACK,      // User ID, Entity ID, Other = Callback type, Status = argument/result count | Data = callback data, in the same format as the API call
+	VM_MESSAGE_SET_CALLBACK,  // User ID, Entity ID, Other = Callback type, Status = 1 to turn it on, 0 to turn it off
 };
 
 enum API_Value_Type {
@@ -151,6 +170,7 @@ class Script {
 
 public:
 	int entity_id;                // Entity that this script controls (if negative, it's temporary)
+	int callback_ref[CALLBACK_COUNT];
 
 	bool is_any_thread_sleeping;  // Is any thread currently sleeping?
 	timespec earliest_wake_up_at; // If any thread is sleeping, then it's the earliest time any of them will wake up
@@ -158,7 +178,7 @@ public:
 	VM *vm;                       // VM containing the script's own global table and all of its threads
 
 	bool compile_and_start(const char *source, size_t source_len);
-	bool start_callback();
+	bool start_callback(int callback_id, int data_item_count, void *data, size_t data_len);
 	RunThreadsStatus run_threads();
 	bool shutdown();
 
@@ -192,8 +212,8 @@ public:
 	Script *script;            // Script this thread belongs to
 	lua_State *interrupted;    // Set by the "debuginterrupt" callback
 
-	bool run();                // Returns true if the thread has completed
-	int resume_script_thread_with_stopwatch(lua_State *state);
+	bool run(int arg_count);   // Returns true if the thread has completed
+	int resume_script_thread_with_stopwatch(lua_State *state, int arg_count);
 	void sleep_for_ms(int ms);
 	void stop();
 	void send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len);
@@ -210,6 +230,8 @@ public:
 void register_lua_api(lua_State* L);
 void set_timespec_now_plus_ms(struct timespec &ts, unsigned long ms);
 bool is_ts_earlier(timespec now, timespec future);
+int push_values_from_message_data(lua_State *L, int num_values, char *data, size_t data_len);
+void lua_c_function_parameter_check(lua_State *L, int param_count, const char *arguments);
 
 ///////////////////////////////////////////////////////////
 

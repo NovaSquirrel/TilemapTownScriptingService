@@ -31,7 +31,7 @@ void send_outgoing_message(VM_MessageType type, unsigned int user_id, int entity
 
 int main(void) {
 	// Compile the global script before doing anything else
-	const char *script_to_load_into_all_vms = "for k, v in {{\"entity\", \"new\"},{\"map\", \"who\"},{\"map\", \"turf_at\"},{\"map\", \"objs_at\"},{\"map\", \"dense_at\"},{\"map\", \"tile_info\"},{\"map\", \"map_info\"},{\"map\", \"within_map\"},{\"storage\", \"load\"},{\"storage\", \"list\"},{\"Entity\", \"who\"},{\"Entity\", \"clone\"}} do local original = _G[v[1]][v[2]]; _G[v[1]][v[2]] = function(...) original(unpack({...})); return tt._result(); end; end";
+	const char *script_to_load_into_all_vms = "for k, v in {{\"entity\", \"new\"},{\"map\", \"who\"},{\"map\", \"turf_at\"},{\"map\", \"objs_at\"},{\"map\", \"dense_at\"},{\"map\", \"tile_lookup\"},{\"map\", \"map_info\"},{\"map\", \"within_map\"},{\"storage\", \"load\"},{\"storage\", \"list\"},{\"Entity\", \"who\"},{\"Entity\", \"clone\"}} do local original = _G[v[1]][v[2]]; _G[v[1]][v[2]] = function(...) original(unpack({...})); return tt._result(); end; end";
 	all_vms_bytecode = luau_compile(script_to_load_into_all_vms, strlen(script_to_load_into_all_vms), NULL, &all_vms_bytecode_size);
 
 	VM l = VM(1);
@@ -58,25 +58,45 @@ int main(void) {
 			data = malloc(data_length);
 			if (fread(data, 1, data_length, stdin) != data_length)
 				break;
-		} 
+		}
 
 		switch(type) {
 			case VM_MESSAGE_PING:
+				//fprintf(stderr, "Received ping\n");
 				send_outgoing_message(VM_MESSAGE_PONG, user_id, entity_id, other_id, status, nullptr, 0);
 				break;
 			case VM_MESSAGE_PONG:
-				fprintf(stderr, "PONG received\n");
+				//fprintf(stderr, "PONG received\n");
 				break;
 			case VM_MESSAGE_VERSION_CHECK:
 				send_outgoing_message(VM_MESSAGE_PONG, 0, 0, 1, 0, nullptr, 0);
 				break;
 			case VM_MESSAGE_SHUTDOWN:
-				fprintf(stderr, "Shutting down\n");
+				fprintf(stderr, "Shutting down scripting service\n");
 				quitting = true;
+
+				// Shut down all VMs
+				for(auto itr = vm_by_user.begin(); itr != vm_by_user.end(); ++itr) {
+					VM *vm = (*itr).second.get();
+					vm->receive_message(type, entity_id, other_id, status, data, data_length);
+				}
 				break;
 			case VM_MESSAGE_START_SCRIPT:
-			case VM_MESSAGE_RUN_CODE:
+			{
+				auto it = vm_by_user.find(user_id);
+				if(it != vm_by_user.end()) {
+					VM *vm = (*it).second.get();
+					vm->receive_message(type, entity_id, other_id, status, data, data_length);
+				} else {
+					VM *vm = new VM(user_id);
+					vm_by_user[user_id] = std::unique_ptr<VM>(vm);
+					vm->receive_message(type, entity_id, other_id, status, data, data_length);
+					vm->start_thread();
+				}
+				break;
+			}
 			case VM_MESSAGE_STOP_SCRIPT:
+			case VM_MESSAGE_RUN_CODE:
 			case VM_MESSAGE_API_CALL:
 			case VM_MESSAGE_API_CALL_GET:
 			case VM_MESSAGE_CALLBACK:
@@ -85,9 +105,11 @@ int main(void) {
 				if(it != vm_by_user.end()) {
 					VM *vm = (*it).second.get();
 					vm->receive_message(type, entity_id, other_id, status, data, data_length);
-				}	
+				}
 				break;
 			}
+			case VM_MESSAGE_SET_CALLBACK:
+				break;
 		}
 	}
 

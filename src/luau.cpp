@@ -52,9 +52,9 @@ void put_32(unsigned int x) {
 }
 
 void send_outgoing_message(VM_MessageType type, unsigned int user_id, int entity_id, unsigned int other_id, unsigned char status, void *data, size_t data_len) {
-	size_t written_len = data_len + MESSAGE_HEADER_SIZE;
+	size_t written_len = data_len;
 
-	fprintf(stderr, "Writing an outgoing message\n");
+	//fprintf(stderr, "Writing an outgoing message\n");
 
 	const std::lock_guard<std::mutex> lock(outgoing_messages_mtx);
 	// TT LL-LL-LL UU-UU-UU-UU EE-EE-EE-EE OO-OO-OO-OO SS [rest of it is the arbitrary data]
@@ -315,7 +315,7 @@ void VM::thread_function() {
 						this->send_message(VM_MESSAGE_VERSION_CHECK, 0, 1, nullptr, 0);
 						break;
 					case VM_MESSAGE_SHUTDOWN:
-						for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ) {
+						for (auto itr = this->scripts.begin(); itr != this->scripts.end(); ) {
 							Script *script = (*itr).second.get();
 							script->shutdown();
 							itr = this->scripts.erase(itr);
@@ -339,7 +339,18 @@ void VM::thread_function() {
 						free_data = false;
 						break;
 					case VM_MESSAGE_CALLBACK:
+					{
+						//fprintf(stderr, "Got callback type %d\n", message.other_id);
+
+						auto it = this->scripts.find(message.entity_id);
+						if(it != this->scripts.end()) {
+							(*it).second.get()->start_callback(message.other_id, message.status, message.data, message.data_len);
+							free_data = false; // Will handle freeing data above
+						} else {
+							fprintf(stderr, "Did not find the script");
+						}
 						break;
+					}
 					default:
 						break;
 				}
@@ -359,7 +370,7 @@ void VM::thread_function() {
 			break;
 
 		RunThreadsStatus status = this->run_scripts();
-		fprintf(stderr, "VM run scripts status: %d\n", status);
+		//fprintf(stderr, "VM run scripts status: %d\n", status);
 		switch (status) {
 			case RUN_THREADS_ALL_WAITING:
 				puts("All threads are waiting");
@@ -403,6 +414,10 @@ Script::Script(VM *vm, int entity_id) {
 	this->entity_id = entity_id;
 	this->was_scheduled_yet = false;
 
+	// No callbacks
+	for (int i=0; i<CALLBACK_COUNT; i++)
+		this->callback_ref[i] = LUA_NOREF;
+
 	// Create a thread and store a reference away to prevent it from getting garbage collected
 	this->L = lua_newthread(vm->L);
 	this->thread_reference = lua_ref(vm->L, -1);
@@ -424,18 +439,22 @@ bool Script::compile_and_start(const char *source, size_t source_len) {
 	size_t bytecodeSize = 0;
 
 	char* bytecode = luau_compile(source, source_len, NULL, &bytecodeSize);
+	if (!bytecode) {
+		fprintf(stderr, "No bytecode returned from compile\n");
+		return true;
+	}
 	//fprintf(stderr, "Compiled; %ld bytes\n", bytecodeSize);
 
 	int result = luau_load(this->L, "chunk", bytecode, bytecodeSize, 0);
 	if (result) {
 		fprintf(stderr, "Failed to load script: %s\n", lua_tostring(this->L, -1));
-		exit(1);
+		return true;
 	}
 
 	// Try running the thread here, but if it doesn't finish then add it to a list to run later
 	ScriptThread *thread = new ScriptThread(this);
 	lua_xmove(this->L, thread->L, 1);
-	if(thread->run()) {
+	if(thread->run(0)) {
 		delete thread;
 		return true;
 	} else {
@@ -444,11 +463,17 @@ bool Script::compile_and_start(const char *source, size_t source_len) {
 	}
 }
 
-bool Script::start_callback() {
-	// Try running the thread here, but if it doesn't finish then add it to a list to run later
+bool Script::start_callback(int callback_id, int data_item_count, void *data, size_t data_len) {
+	if (callback_id < 0 || callback_id >= CALLBACK_COUNT || this->callback_ref[callback_id] == LUA_NOREF) {
+		if (data)
+			free(data);
+		return true; // Technically it's finished, because it never even had to start
+	}
+
 	ScriptThread *thread = new ScriptThread(this);
-	lua_xmove(this->L, thread->L, 2); // Should put function and data into the script first
-	if(thread->run()) {
+	lua_getref(thread->L, this->callback_ref[callback_id]);
+	int arg_count = push_values_from_message_data(thread->L, data_item_count, (char*)data, data_len);
+	if(thread->run(arg_count)) {
 		delete thread;
 		return true;
 	} else {
@@ -537,7 +562,7 @@ RunThreadsStatus Script::run_threads() {
 			// Thread is not sleeping, or has just woken up
 			bool old_any_threads_run = false;
 			any_threads_run = true;
-			if (thread->run()) {
+			if (thread->run(0)) {
 				itr = this->threads.erase(itr);
 			} else {
 				if (thread->was_preempted) { // If it was preempted, stop running any other threads
@@ -573,8 +598,8 @@ RunThreadsStatus Script::run_threads() {
 }
 
 bool Script::shutdown() {
-	// TODO
 	fprintf(stderr, "Shutting down script\n");
+	this->start_callback(CALLBACK_MISC_SHUTDOWN, 0, nullptr, 0);
 	return true;
 }
 
@@ -604,7 +629,7 @@ ScriptThread::~ScriptThread() {
 	this->stop();
 }
 
-int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state) {
+int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state, int arg_count) {
 	this->was_preempted = false;
 
 	struct timespec start_ts, end_ts;
@@ -614,7 +639,7 @@ int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state) {
 	this->preempt_at.tv_sec  = halt_nanoseconds / ONE_SECOND_IN_NANOSECONDS;
 	this->preempt_at.tv_nsec = halt_nanoseconds % ONE_SECOND_IN_NANOSECONDS;
 
-	int status = lua_resume(state, NULL, 0);
+	int status = lua_resume(state, NULL, arg_count);
 	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &end_ts);
 
 	unsigned long long end_nanoseconds = end_ts.tv_sec * ONE_SECOND_IN_NANOSECONDS + end_ts.tv_nsec;
@@ -635,14 +660,14 @@ int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state) {
 	return status;
 }
 
-bool ScriptThread::run() {
+bool ScriptThread::run(int arg_count) {
 	// If a coroutine inside the thread was interrupted by lua_break(), that specific coroutine needs to be resumed
 	// callback_debuginterrupt will be called, which will provide a pointer to the coroutine that needs to resume
 	if (this->is_thread_stopped)
 		return true;
 	if (this->interrupted != nullptr) {
 		lua_State *save_interrupted = this->interrupted;
-		int interrupted_status = this->resume_script_thread_with_stopwatch(this->interrupted);
+		int interrupted_status = this->resume_script_thread_with_stopwatch(this->interrupted, 0);
 		if (interrupted_status == LUA_BREAK) {
 			return false;
 		}
@@ -657,7 +682,7 @@ bool ScriptThread::run() {
 		return true;
 
 	// Try resuming the main coroutine this thread object is for
-	int status = this->resume_script_thread_with_stopwatch(this->L);
+	int status = this->resume_script_thread_with_stopwatch(this->L, arg_count);
 
 	if (status == 0) {
 		int n = lua_gettop(this->L);
@@ -747,6 +772,12 @@ void lua_c_function_parameter_check(lua_State *L, int param_count, const char *a
 			case 't': // Table
 				luaL_checktype(L, i+1, LUA_TTABLE);
 				continue;
+			case 'F': // Function or nil
+				if (lua_isnil(L, i+1)) 
+					continue;
+			case 'f': // Function
+				luaL_checktype(L, i+1, LUA_TFUNCTION);
+				continue;
 			default:
 				break;
 		}
@@ -760,6 +791,12 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 	unsigned char out_buffer[0x10000];
 	unsigned char *write = out_buffer;
 	unsigned char *buffer_end = out_buffer + sizeof(out_buffer);
+
+	*(write++) = API_VALUE_STRING;
+	*((int*)write) = strlen(command_name);
+	write += 4;
+	memcpy(write, command_name, strlen(command_name));
+	write += strlen(command_name);
 
 	int n;
 	const char *s;
@@ -819,14 +856,14 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 	}
 
 	if (!request_response) {
-		this->send_message(VM_MESSAGE_API_CALL, 0, arg_count, out_buffer, write - out_buffer);
+		this->send_message(VM_MESSAGE_API_CALL, 0, arg_count+1, out_buffer, write - out_buffer);
 		return 0;
 	} else {
 		this->is_waiting_for_api = true;
 		time(&this->started_waiting_for_api_at);
 		this->api_response_key = this->script->vm->next_api_result_key++;
 		//fprintf(stderr, "Expecting response key %d\n", this->api_response_key);
-		this->send_message(VM_MESSAGE_API_CALL_GET, this->api_response_key, arg_count, out_buffer, write - out_buffer);
+		this->send_message(VM_MESSAGE_API_CALL_GET, this->api_response_key, arg_count+1, out_buffer, write - out_buffer);
 		return lua_break(L);
 	}
 }

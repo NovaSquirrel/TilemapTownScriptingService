@@ -82,6 +82,42 @@ static int tt_tt_decode_json(lua_State* L) {
 
 ///////////////////////////////////////////////////////////
 
+struct callback_name_lookup_item {
+	const char *name;
+	enum CallbackTypeID type;
+};
+
+struct callback_name_lookup_item callback_names_self[] = {
+	{"private_message",    CALLBACK_SELF_PRIVATE_MESSAGE},
+	{"got_permission",     CALLBACK_SELF_GOT_PERMISSION},
+	{"took_controls",      CALLBACK_SELF_TOOK_CONTROLS},
+	{"key_press",          CALLBACK_SELF_KEY_PRESS},
+	{"click",              CALLBACK_SELF_CLICK},
+	{"bot_command_button", CALLBACK_SELF_BOT_COMMAND_BUTTON},
+	{"request_received",   CALLBACK_SELF_REQUEST_RECEIVED},
+	{"use",                CALLBACK_SELF_USE},
+	{NULL}
+};
+struct callback_name_lookup_item callback_names_map[] = {
+	{"join",               CALLBACK_MAP_JOIN},
+	{"leave",              CALLBACK_MAP_LEAVE},
+	{"chat",               CALLBACK_MAP_CHAT},
+	{"bump",               CALLBACK_MAP_BUMP},
+	{NULL}
+};
+struct callback_name_lookup_item callback_names_misc[] = {
+	{"shutdown",           CALLBACK_MISC_SHUTDOWN},
+	{NULL}
+};
+CallbackTypeID get_callback_id_from_name(const char *name, struct callback_name_lookup_item *table) {
+	for (int i = 0; table[i].name; i++)
+		if (!strcmp(table[i].name, name))
+			return table[i].type;
+	return CALLBACK_INVALID;
+}
+
+///////////////////////////////////////////////////////////
+
 static int tt_custom_print(lua_State* L) {
 	// Copied from luaB_print in the Luau code
     int n = lua_gettop(L); // number of arguments
@@ -170,14 +206,10 @@ static int tt_map_dense_at(lua_State* L) {
 		return thread->send_api_call(L, "m_dense", true, -2, "iii");
 	return 0;
 }
-static int tt_map_tile_info(lua_State* L) {
-	if (lua_istable(L, 1)) {
-		return 1;
-	} else if (lua_isstring(L, 1)) {
-		ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
-		if (thread)
-			return thread->send_api_call(L, "m_tileinfo", true, 1, "s");
-	}
+static int tt_map_tile_lookup(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "m_tilelookup", true, 1, "s");
 	return 0;
 }
 static int tt_map_map_info(lua_State* L) {
@@ -192,14 +224,22 @@ static int tt_map_within_map(lua_State* L) {
 		return thread->send_api_call(L, "m_within", true, 2, "ii");
 	return 0;
 }
-static int tt_map_add_callback(lua_State* L) {
-	return 0;
-}
-static int tt_map_remove_callback(lua_State* L) {
-//	int id = luaL_checkinteger(L, 1);
-	return 0;
-}
-static int tt_map_reset_callbacks(lua_State* L) {
+static int tt_map_set_callback(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (!thread)
+		return 0;
+	lua_c_function_parameter_check(L, 2, "Fs");
+	CallbackTypeID callback_type = get_callback_id_from_name(luaL_checkstring(L, 2), callback_names_map);
+	if (callback_type == CALLBACK_INVALID)
+		return 0;
+	if (thread->script->callback_ref[callback_type] != LUA_NOREF) {
+		lua_unref(L, thread->script->callback_ref[callback_type]);
+		thread->script->callback_ref[callback_type] = LUA_NOREF;
+	}
+	thread->send_message(VM_MESSAGE_SET_CALLBACK, callback_type, !lua_isnil(L, 1), nullptr, 0);
+	if (!lua_isnil(L, 1)) {
+		thread->script->callback_ref[callback_type] = lua_ref(L, 1);
+	}
 	return 0;
 }
 static int tt_storage_reset(lua_State* L) {
@@ -248,6 +288,67 @@ static int tt_tt_sleep(lua_State* L) {
 	}
 	return lua_break(L);
 }
+static int tt_tt_owner_say(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "ownersay", false, 1, "s");
+	return 0;
+}
+
+int push_values_from_message_data(lua_State *L, int num_values, char *data, size_t data_len) {
+	if (!data)
+		return 0;
+	void *original_data = (void*)data;
+
+	// Push the data contained in the message
+	const char *data_end = (const char *)data + data_len;
+	int values_pushed = 0;
+
+	while (num_values && data < data_end) {
+		int type = *(data++);
+		int n;
+
+		switch (type) {
+			case API_VALUE_NIL:
+				lua_pushnil(L);
+				break;
+			case API_VALUE_FALSE:
+				lua_pushboolean(L, 0);
+				break;
+			case API_VALUE_TRUE:
+				lua_pushboolean(L, 1);
+				break;
+			case API_VALUE_INTEGER:
+				lua_pushinteger(L, *(int*)data);
+				data += 4;
+				break;
+			case API_VALUE_STRING:
+				n = *(int*)data;
+				data += 4;
+				lua_pushlstring(L, data, n);
+				data += n;
+				break;
+			case API_VALUE_JSON:
+				n = *(int*)data;
+				data += 4;
+				push_json_data(L, data, n);
+				data += n;
+				break;
+			case API_VALUE_TABLE:
+				break;
+			default:
+				break;
+		}
+
+		values_pushed++;
+		num_values--;
+	}
+
+	// Clean up
+	free(original_data);
+	return values_pushed;
+}
+
 static int tt_tt_get_result(lua_State *L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread) {
@@ -256,60 +357,7 @@ static int tt_tt_get_result(lua_State *L) {
 		if(it != thread->script->vm->api_results.end()) {
 			VM_Message message = (*it).second;
 			thread->script->vm->api_results.erase(it);
-
-			if (!message.data)
-				return 0;
-
-			// Push the data contained in the message
-			int num_values = message.status;
-			const char *d = (const char *)message.data;
-			const char *d_end = (const char *)message.data + message.data_len + 1;
-			int values_pushed = 0;
-
-			while (num_values && d < d_end) {
-				int type = *(d++);
-				int n;
-
-				switch (type) {
-					case API_VALUE_NIL:
-						lua_pushnil(L);
-						break;
-					case API_VALUE_FALSE:
-						lua_pushboolean(L, 0);
-						break;
-					case API_VALUE_TRUE:
-						lua_pushboolean(L, 1);
-						break;
-					case API_VALUE_INTEGER:
-						lua_pushinteger(L, *(int*)d);
-						d += 4;
-						break;
-					case API_VALUE_STRING:
-						n = *(int*)d;
-						d += 4;
-						lua_pushlstring(L, d, n);
-						d += n;
-						break;
-					case API_VALUE_JSON:
-						n = *(int*)d;
-						d += 4;
-						push_json_data(L, d, n);
-						d += n;
-						break;
-					case API_VALUE_TABLE:
-						break;
-					default:
-						break;
-				}
-
-				values_pushed++;
-				num_values--;
-			}
-
-			// Clean up
-			free(message.data);
-
-			return values_pushed;
+			return push_values_from_message_data(L, message.status, (char*)message.data, message.data_len);
 		} else {
 			return 0;
 		}
@@ -332,13 +380,22 @@ static int tt_tt_memory_free(lua_State* L) {
 	}
 	return 0;
 }
-static int tt_tt_add_callback(lua_State* L) {
-	return 0;
-}
-static int tt_tt_remove_callback(lua_State* L) {
-	return 0;
-}
-static int tt_tt_reset_callbacks(lua_State* L) {
+static int tt_tt_set_callback(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (!thread)
+		return 0;
+	lua_c_function_parameter_check(L, 2, "Fs");
+	CallbackTypeID callback_type = get_callback_id_from_name(luaL_checkstring(L, 2), callback_names_misc);
+	if (callback_type == CALLBACK_INVALID)
+		return 0;
+	if (thread->script->callback_ref[callback_type] != LUA_NOREF) {
+		lua_unref(L, thread->script->callback_ref[callback_type]);
+		thread->script->callback_ref[callback_type] = LUA_NOREF;
+	}
+	thread->send_message(VM_MESSAGE_SET_CALLBACK, callback_type, !lua_isnil(L, 1), nullptr, 0);
+	if (!lua_isnil(L, 1)) {
+		thread->script->callback_ref[callback_type] = lua_ref(L, 1);
+	}
 	return 0;
 }
 static int tt_entity_object_who(lua_State* L) {
@@ -416,13 +473,32 @@ static int tt_entity_object_delete(lua_State* L) {
 		return thread->send_api_call(L, "e_delete", false, 1, "E");
 	return 0;
 }
-static int tt_entity_object_add_callback(lua_State* L) {
-	return 0;
-}
-static int tt_entity_object_remove_callback(lua_State* L) {
-	return 0;
-}
-static int tt_entity_object_reset_callbacks(lua_State* L) {
+static int tt_entity_object_set_callback(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (!thread)
+		return 0;
+	// Check if the ID is the entity's self
+	lua_getfield(L, 1, "_id");
+	int n = lua_tointeger(L, -1);
+	lua_pop(L, 1);
+	if (n != thread->script->entity_id) {
+		fprintf(stderr, "Setting callback on non-self entity not supported yet\n");
+		return 0;
+	}
+
+	// Now to set the function as a callback
+	lua_c_function_parameter_check(L, 3, "EFs");
+	CallbackTypeID callback_type = get_callback_id_from_name(luaL_checkstring(L, 3), callback_names_self);
+	if (callback_type == CALLBACK_INVALID)
+		return 0;
+	if (thread->script->callback_ref[callback_type] != LUA_NOREF) {
+		lua_unref(L, thread->script->callback_ref[callback_type]);
+		thread->script->callback_ref[callback_type] = LUA_NOREF;
+	}
+	thread->send_message(VM_MESSAGE_SET_CALLBACK, callback_type, !lua_isnil(L, 2), nullptr, 0);
+	if (!lua_isnil(L, 2)) {
+		thread->script->callback_ref[callback_type] = lua_ref(L, 2);
+	}
 	return 0;
 }
 static int tt_mini_tilemap_object_resize(lua_State* L) {
@@ -492,12 +568,10 @@ void register_lua_api(lua_State* L) {
 		{"turf_at",         tt_map_turf_at},
 		{"objs_at",         tt_map_objs_at},
 		{"dense_at",        tt_map_dense_at},
-		{"tile_info",       tt_map_tile_info},
+		{"tile_lookup",     tt_map_tile_lookup},
 		{"map_info",        tt_map_map_info},
 		{"within_map",      tt_map_within_map},
-		{"add_callback",    tt_map_add_callback},
-		{"remove_callback", tt_map_remove_callback},
-		{"reset_callbacks", tt_map_reset_callbacks},
+		{"set_callback",    tt_map_set_callback},
         {NULL, NULL},
     };
 
@@ -527,14 +601,13 @@ void register_lua_api(lua_State* L) {
 
     static const luaL_Reg misc_funcs[] = {
 		{"sleep",           tt_tt_sleep},
-		{"_result",         tt_tt_get_result},
+		{"ownersay",        tt_tt_owner_say},
 		{"from_json",       tt_tt_decode_json},
 		//{"to_json",         tt_tt_encode_json},
 		{"memory_used",     tt_tt_memory_used},
 		{"memory_free",     tt_tt_memory_free},
-		{"add_callback",    tt_tt_add_callback},
-		{"remove_callback", tt_tt_remove_callback},
-		{"reset_callbacks", tt_tt_reset_callbacks},
+		{"set_callback",    tt_tt_set_callback},
+		{"_result",         tt_tt_get_result},
         {NULL, NULL},
     };
 
@@ -551,9 +624,7 @@ void register_lua_api(lua_State* L) {
 		{"set",             tt_entity_object_set},
 		{"clone",           tt_entity_object_clone},
 		{"delete",          tt_entity_object_delete},
-		{"add_callback",    tt_entity_object_add_callback},
-		{"remove_callback", tt_entity_object_remove_callback},
-		{"reset_callbacks", tt_entity_object_reset_callbacks},
+		{"set_callback",    tt_entity_object_set_callback},
 		{"set_mini_tilemap", tt_entity_object_set_mini_tilemap},
         {NULL, NULL},
     };
