@@ -64,8 +64,9 @@ void push_json_data(lua_State* L, const char *string, size_t size) {
 	cJSON *root = cJSON_ParseWithLength(string, size);
 	if (!root) {
 		lua_pushnil(L);
+	} else {
+		push_json_value(L, root);
 	}
-	push_json_value(L, root);
 	cJSON_Delete(root);
 }
 
@@ -96,6 +97,7 @@ struct callback_name_lookup_item callback_names_self[] = {
 	{"bot_command_button", CALLBACK_SELF_BOT_COMMAND_BUTTON},
 	{"request_received",   CALLBACK_SELF_REQUEST_RECEIVED},
 	{"use",                CALLBACK_SELF_USE},
+	{"switch_map",         CALLBACK_SELF_SWITCH_MAP},
 	{NULL}
 };
 struct callback_name_lookup_item callback_names_map[] = {
@@ -157,6 +159,13 @@ static int tt_entity_new(lua_State* L) {
 		return thread->send_api_call(L, "e_new", true, 0, "t");
 	return 0;
 }
+static int tt_entity_here(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_here", true, 0, "");
+	return 0;
+}
+
 static int tt_entity_me(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread) {
@@ -167,6 +176,20 @@ static int tt_entity_me(lua_State* L) {
 			sprintf(id, "~%d", -thread->script->entity_id);
 		}
 		create_entity_table(L, id, thread->script->entity_id);
+		return 1;
+	}
+	return 0;
+}
+static int tt_entity_owner(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread) {
+		char id[20];
+		if(thread->script->vm->user_id >= 0) {
+			sprintf(id, "%d", thread->script->vm->user_id);
+		} else {
+			sprintf(id, "~%d", -thread->script->vm->user_id);
+		}
+		create_entity_table(L, id, thread->script->vm->user_id);
 		return 1;
 	}
 	return 0;
@@ -224,6 +247,12 @@ static int tt_map_within_map(lua_State* L) {
 		return thread->send_api_call(L, "m_within", true, 2, "ii");
 	return 0;
 }
+static int tt_map_size(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "m_size", true, 0, "");
+	return 0;
+}
 static int tt_map_set_callback(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (!thread)
@@ -245,7 +274,7 @@ static int tt_map_set_callback(lua_State* L) {
 static int tt_storage_reset(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "s_reset", false, 0, "s");
+		return thread->send_api_call(L, "s_reset", true, 0, "s");
 	return 0;
 }
 static int tt_storage_load(lua_State* L) {
@@ -257,7 +286,7 @@ static int tt_storage_load(lua_State* L) {
 static int tt_storage_save(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "s_save", false, -2, "s.");
+		return thread->send_api_call(L, "s_save", true, -2, "s.");
 	return 0;
 }
 static int tt_storage_list(lua_State* L) {
@@ -296,39 +325,50 @@ static int tt_tt_owner_say(lua_State* L) {
 }
 
 int push_values_from_message_data(lua_State *L, int num_values, char *data, size_t data_len) {
+	fprintf(stderr, "push_values_from_message_data 1\n");
 	if (!data)
 		return 0;
+	fprintf(stderr, "push_values_from_message_data 2\n");
 	void *original_data = (void*)data;
 
 	// Push the data contained in the message
 	const char *data_end = (const char *)data + data_len;
 	int values_pushed = 0;
 
+	fprintf(stderr, "push_values_from_message_data 3\n");
+
 	while (num_values && data < data_end) {
+		fprintf(stderr, "push_values_from_message_data 4\n");
 		int type = *(data++);
 		int n;
 
 		switch (type) {
 			case API_VALUE_NIL:
+				fprintf(stderr, "push_values_from_message_data 5\n");
 				lua_pushnil(L);
 				break;
 			case API_VALUE_FALSE:
+				fprintf(stderr, "push_values_from_message_data 6\n");
 				lua_pushboolean(L, 0);
 				break;
 			case API_VALUE_TRUE:
+				fprintf(stderr, "push_values_from_message_data 7\n");
 				lua_pushboolean(L, 1);
 				break;
 			case API_VALUE_INTEGER:
+				fprintf(stderr, "push_values_from_message_data 8\n");
 				lua_pushinteger(L, *(int*)data);
 				data += 4;
 				break;
 			case API_VALUE_STRING:
+				fprintf(stderr, "push_values_from_message_data 9\n");
 				n = *(int*)data;
 				data += 4;
 				lua_pushlstring(L, data, n);
 				data += n;
 				break;
 			case API_VALUE_JSON:
+				fprintf(stderr, "push_values_from_message_data 10\n");
 				n = *(int*)data;
 				data += 4;
 				push_json_data(L, data, n);
@@ -402,6 +442,12 @@ static int tt_entity_object_who(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
 		return thread->send_api_call(L, "e_who", true, 1, "E");
+	return 0;
+}
+static int tt_entity_object_xy(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_xy", true, 1, "E");
 	return 0;
 }
 static int tt_entity_object_move(lua_State* L) {
@@ -501,6 +547,12 @@ static int tt_entity_object_set_callback(lua_State* L) {
 	}
 	return 0;
 }
+static int tt_entity_object_is_loaded(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_isloaded", true, 1, "E");
+	return 0;
+}
 static int tt_mini_tilemap_object_resize(lua_State* L) {
 	return 0;
 }
@@ -557,9 +609,11 @@ static int tt_bitmap_2x4_object_draw_sprite_off(lua_State* L) {
 
 void register_lua_api(lua_State* L) {
     static const luaL_Reg entity_funcs[] = {
-		{"new", tt_entity_new},
-		{"me",  tt_entity_me},
-		{"get", tt_entity_get},
+		{"new",   tt_entity_new},
+		{"here",  tt_entity_here},
+		{"me",    tt_entity_me},
+		{"owner", tt_entity_owner},
+		{"get",   tt_entity_get},
         {NULL, NULL},
     };
 
@@ -571,6 +625,7 @@ void register_lua_api(lua_State* L) {
 		{"tile_lookup",     tt_map_tile_lookup},
 		{"map_info",        tt_map_map_info},
 		{"within_map",      tt_map_within_map},
+		{"size",            tt_map_size},
 		{"set_callback",    tt_map_set_callback},
         {NULL, NULL},
     };
@@ -613,6 +668,7 @@ void register_lua_api(lua_State* L) {
 
     static const luaL_Reg entity_object_funcs[] = {
 		{"who",             tt_entity_object_who},
+		{"xy",              tt_entity_object_xy},
 		{"move",            tt_entity_object_move},
 		{"turn",            tt_entity_object_turn},
 		{"step",            tt_entity_object_step},
@@ -625,6 +681,7 @@ void register_lua_api(lua_State* L) {
 		{"clone",           tt_entity_object_clone},
 		{"delete",          tt_entity_object_delete},
 		{"set_callback",    tt_entity_object_set_callback},
+		{"is_loaded",       tt_entity_object_is_loaded},
 		{"set_mini_tilemap", tt_entity_object_set_mini_tilemap},
         {NULL, NULL},
     };
