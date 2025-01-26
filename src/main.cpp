@@ -34,8 +34,8 @@ int main(void) {
 	const char *script_to_load_into_all_vms = "for k, v in {{\"entity\", \"new\"},{\"map\", \"who\"},{\"map\", \"turf_at\"},{\"map\", \"objs_at\"},{\"map\", \"dense_at\"},{\"map\", \"tile_lookup\"},{\"map\", \"map_info\"},{\"map\", \"within_map\"},{\"storage\", \"load\"},{\"storage\", \"list\"},{\"storage\", \"save\"},{\"storage\", \"reset\"},{\"Entity\", \"who\"},{\"Entity\", \"clone\"},{\"Entity\", \"is_loaded\"},{\"tt\", \"run_text_item\"},{\"tt\", \"read_text_item\"}} do local original = _G[v[1]][v[2]]; _G[v[1]][v[2]] = function(...) original(unpack({...})); return tt._result(); end; end";
 	all_vms_bytecode = luau_compile(script_to_load_into_all_vms, strlen(script_to_load_into_all_vms), NULL, &all_vms_bytecode_size);
 
-	VM l = VM(1);
-	l.start_thread();
+	//VM l = VM(1);
+	//l.start_thread();
 
 	bool quitting = false;
 	while (!quitting) {
