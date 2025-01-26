@@ -51,7 +51,7 @@ void put_32(unsigned int x) {
 	putchar((x >> 24) & 255);
 }
 
-void send_outgoing_message(VM_MessageType type, unsigned int user_id, int entity_id, unsigned int other_id, unsigned char status, void *data, size_t data_len) {
+void send_outgoing_message(VM_MessageType type, unsigned int user_id, int entity_id, unsigned int other_id, unsigned char status, const void *data, size_t data_len) {
 	size_t written_len = data_len;
 
 	//fprintf(stderr, "Writing an outgoing message\n");
@@ -292,7 +292,7 @@ void VM::receive_message(VM_MessageType type, int entity_id, int other_id, unsig
 	}
 }
 
-void VM::send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len) {
+void VM::send_message(VM_MessageType type, int other_id, unsigned char status, const void *data, size_t data_len) {
 	send_outgoing_message(type, this->user_id, 0, other_id, status, data, data_len);
 }
 
@@ -704,7 +704,9 @@ bool ScriptThread::run(int arg_count) {
 		error += "\nstack backtrace:\n";
 		error += lua_debugtrace(this->L);
 
-		fprintf(stderr, "%s\n", error.c_str());
+		const char *c_str = error.c_str();
+		this->send_message(VM_MESSAGE_SCRIPT_ERROR, 0, 0, c_str, strlen(c_str));
+		//fprintf(stderr, "%s\n", error.c_str());
 	}
 	return true; // Thread finished and can be removed
 }
@@ -732,7 +734,7 @@ void ScriptThread::sleep_for_ms(int ms) {
 	this->wake_up_at.tv_nsec = desired_nanoseconds % ONE_SECOND_IN_NANOSECONDS;
 }
 
-void ScriptThread::send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len) {
+void ScriptThread::send_message(VM_MessageType type, int other_id, unsigned char status, const void *data, size_t data_len) {
 	send_outgoing_message(type, this->script->vm->user_id, this->script->entity_id, other_id, status, data, data_len);
 }
 
@@ -749,6 +751,8 @@ void lua_c_function_parameter_check(lua_State *L, int param_count, const char *a
 	for (int i=0; i<abs(param_count); i++) {
 		switch (arguments[i]) {
 			case 'E': // Entity
+				if (lua_type(L, i+1) == LUA_TNUMBER || lua_type(L, i+1) == LUA_TSTRING)
+					continue;
 				luaL_checktype(L, i+1, LUA_TTABLE); // Add a further check here?
 				continue;
 			case 'b': // Boolean
@@ -809,12 +813,18 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 			case 'E': // Entity
 				if ((write + 5) >= buffer_end)
 					return 0;
-				lua_getfield(L, i+1, "_id");
-				*(write++) = API_VALUE_INTEGER;
-				n = lua_tointeger(L, -1);
-				*((int*)write) = n;
-				write += 4;
-				lua_pop(L, 1);
+				if (lua_type(L, i+1) == LUA_TNUMBER) {
+					goto do_integer;
+				} else if (lua_type(L, i+1) == LUA_TSTRING) {
+					goto do_string;
+				} else if (lua_type(L, i+1) == LUA_TTABLE) {
+					lua_getfield(L, i+1, "_id");
+					*(write++) = API_VALUE_INTEGER;
+					n = lua_tointeger(L, -1);
+					*((int*)write) = n;
+					write += 4;
+					lua_pop(L, 1);
+				}
 				continue;
 			case 'b': // Boolean
 				if ((write + 1) >= buffer_end)
@@ -823,6 +833,7 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 				continue;
 			case 'I': // String or integer
 			case 's': // String
+			do_string:
 				if ((write + 1) >= buffer_end)
 					return 0;
 				*(write++) = API_VALUE_STRING;
@@ -837,6 +848,7 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 				continue;
 			case 'n': // Number
 			case 'i': // Integer
+			do_integer:
 				if ((write + 5) >= buffer_end)
 					return 0;
 				*(write++) = API_VALUE_INTEGER;

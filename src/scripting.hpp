@@ -92,6 +92,7 @@ enum VM_MessageType {
 	VM_MESSAGE_API_CALL_GET,  // User ID, Entity ID, Other = API result key, Status = argument/result count | Data = data given or returned (or it may be in the status) - Requests that information be returned
 	VM_MESSAGE_CALLBACK,      // User ID, Entity ID, Other = Callback type, Status = argument/result count | Data = callback data, in the same format as the API call
 	VM_MESSAGE_SET_CALLBACK,  // User ID, Entity ID, Other = Callback type, Status = 1 to turn it on, 0 to turn it off
+	VM_MESSAGE_SCRIPT_ERROR,  // User ID, Entity ID, Other = Callback type | Data = error message
 };
 
 enum API_Value_Type {
@@ -148,7 +149,7 @@ public:
 	timespec earliest_wake_up_at;   // If any scripts are sleeping, earliest time any of them will wake up
 
 	void receive_message(VM_MessageType type, int entity_id, int other_id, unsigned char status, void *data, size_t data_len);
-	void send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len);
+	void send_message(VM_MessageType type, int other_id, unsigned char status, const void *data, size_t data_len);
 	void add_script(int entity_id);
 	void run_code_on_self(const char *bytecode, size_t bytecode_size);
 	void run_code_on_script(int entity_id, const char *code, size_t code_size);
@@ -217,7 +218,7 @@ public:
 	int resume_script_thread_with_stopwatch(lua_State *state, int arg_count);
 	void sleep_for_ms(int ms);
 	void stop();
-	void send_message(VM_MessageType type, int other_id, unsigned char status, void *data, size_t data_len);
+	void send_message(VM_MessageType type, int other_id, unsigned char status, const void *data, size_t data_len);
 	int send_api_call(lua_State *L, const char *command_name, bool request_response, int param_count, const char *arguments);
 
 	ScriptThread(Script *script);

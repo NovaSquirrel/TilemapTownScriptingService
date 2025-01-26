@@ -389,6 +389,18 @@ int push_values_from_message_data(lua_State *L, int num_values, char *data, size
 	return values_pushed;
 }
 
+static int tt_tt_run_text_item(lua_State *L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "runitem", true, 1, "I");
+	return 0;
+}
+static int tt_tt_read_text_item(lua_State *L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "readitem", true, 1, "I");
+	return 0;
+}
 static int tt_tt_get_result(lua_State *L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread) {
@@ -553,6 +565,12 @@ static int tt_entity_object_is_loaded(lua_State* L) {
 		return thread->send_api_call(L, "e_isloaded", true, 1, "E");
 	return 0;
 }
+static int tt_entity_object_have_permission(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_havepermission", true, 1, "Es");
+	return 0;
+}
 static int tt_mini_tilemap_object_resize(lua_State* L) {
 	return 0;
 }
@@ -663,6 +681,8 @@ void register_lua_api(lua_State* L) {
 		{"memory_free",     tt_tt_memory_free},
 		{"set_callback",    tt_tt_set_callback},
 		{"_result",         tt_tt_get_result},
+		{"run_text_item",   tt_tt_run_text_item},
+		{"read_text_item",  tt_tt_read_text_item},
         {NULL, NULL},
     };
 
@@ -682,6 +702,7 @@ void register_lua_api(lua_State* L) {
 		{"delete",          tt_entity_object_delete},
 		{"set_callback",    tt_entity_object_set_callback},
 		{"is_loaded",       tt_entity_object_is_loaded},
+		{"have_permission",  tt_entity_object_have_permission},
 		{"set_mini_tilemap", tt_entity_object_set_mini_tilemap},
         {NULL, NULL},
     };

@@ -25,13 +25,13 @@ std::mutex outgoing_messages_mtx;
 size_t all_vms_bytecode_size;
 char *all_vms_bytecode;
 std::unordered_map<int, std::unique_ptr<VM>> vm_by_user;
-void send_outgoing_message(VM_MessageType type, unsigned int user_id, int entity_id, unsigned int other_id, unsigned char status, void *data, size_t data_len);
+void send_outgoing_message(VM_MessageType type, unsigned int user_id, int entity_id, unsigned int other_id, unsigned char status, const void *data, size_t data_len);
 
 ///////////////////////////////////////////////////////////
 
 int main(void) {
 	// Compile the global script before doing anything else
-	const char *script_to_load_into_all_vms = "for k, v in {{\"entity\", \"new\"},{\"map\", \"who\"},{\"map\", \"turf_at\"},{\"map\", \"objs_at\"},{\"map\", \"dense_at\"},{\"map\", \"tile_lookup\"},{\"map\", \"map_info\"},{\"map\", \"within_map\"},{\"storage\", \"load\"},{\"storage\", \"list\"},{\"storage\", \"save\"},{\"storage\", \"reset\"},{\"Entity\", \"who\"},{\"Entity\", \"clone\"},{\"Entity\", \"is_loaded\"}} do local original = _G[v[1]][v[2]]; _G[v[1]][v[2]] = function(...) original(unpack({...})); return tt._result(); end; end";
+	const char *script_to_load_into_all_vms = "for k, v in {{\"entity\", \"new\"},{\"map\", \"who\"},{\"map\", \"turf_at\"},{\"map\", \"objs_at\"},{\"map\", \"dense_at\"},{\"map\", \"tile_lookup\"},{\"map\", \"map_info\"},{\"map\", \"within_map\"},{\"storage\", \"load\"},{\"storage\", \"list\"},{\"storage\", \"save\"},{\"storage\", \"reset\"},{\"Entity\", \"who\"},{\"Entity\", \"clone\"},{\"Entity\", \"is_loaded\"},{\"tt\", \"run_text_item\"},{\"tt\", \"read_text_item\"}} do local original = _G[v[1]][v[2]]; _G[v[1]][v[2]] = function(...) original(unpack({...})); return tt._result(); end; end";
 	all_vms_bytecode = luau_compile(script_to_load_into_all_vms, strlen(script_to_load_into_all_vms), NULL, &all_vms_bytecode_size);
 
 	VM l = VM(1);
@@ -109,6 +109,7 @@ int main(void) {
 				break;
 			}
 			case VM_MESSAGE_SET_CALLBACK:
+			case VM_MESSAGE_SCRIPT_ERROR:
 				break;
 		}
 	}
