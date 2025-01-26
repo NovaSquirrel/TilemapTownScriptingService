@@ -286,7 +286,7 @@ static int tt_storage_load(lua_State* L) {
 static int tt_storage_save(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "s_save", true, -2, "s.");
+		return thread->send_api_call(L, "s_save", true, -2, "s$");
 	return 0;
 }
 static int tt_storage_list(lua_State* L) {
@@ -320,7 +320,7 @@ static int tt_tt_sleep(lua_State* L) {
 static int tt_tt_owner_say(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "ownersay", false, 1, "s");
+		return thread->send_api_call(L, "ownersay", false, 1, "$");
 	return 0;
 }
 
@@ -489,7 +489,7 @@ static int tt_entity_object_fly(lua_State* L) {
 static int tt_entity_object_say(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "e_say", false, 2, "Es");
+		return thread->send_api_call(L, "e_say", false, 2, "E$");
 	return 0;
 }
 static int tt_entity_object_command(lua_State* L) {
@@ -501,7 +501,7 @@ static int tt_entity_object_command(lua_State* L) {
 static int tt_entity_object_tell(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "e_tell", false, 3, "EIs");
+		return thread->send_api_call(L, "e_tell", false, 3, "EI$");
 	return 0;
 }
 static int tt_entity_object_typing(lua_State* L) {

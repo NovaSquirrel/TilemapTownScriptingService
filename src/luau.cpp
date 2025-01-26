@@ -445,9 +445,17 @@ bool Script::compile_and_start(const char *source, size_t source_len) {
 	}
 	//fprintf(stderr, "Compiled; %ld bytes\n", bytecodeSize);
 
-	int result = luau_load(this->L, "chunk", bytecode, bytecodeSize, 0);
+	char chunk_name[32];
+	if (this->entity_id >= 0) {
+		sprintf(chunk_name, "=[entity %d]", this->entity_id);
+	} else {
+		sprintf(chunk_name, "=[entity ~%d]", -this->entity_id);
+	}
+	int result = luau_load(this->L, chunk_name, bytecode, bytecodeSize, 0);
 	if (result) {
-		fprintf(stderr, "Failed to load script: %s\n", lua_tostring(this->L, -1));
+		//fprintf(stderr, "Failed to load script: %s\n", lua_tostring(this->L, -1));
+		const char *error = lua_tostring(this->L, -1);
+		send_outgoing_message(VM_MESSAGE_SCRIPT_ERROR, this->vm->user_id, this->entity_id, 0, 1, error, strlen(error));
 		return true;
 	}
 
@@ -782,6 +790,8 @@ void lua_c_function_parameter_check(lua_State *L, int param_count, const char *a
 			case 'f': // Function
 				luaL_checktype(L, i+1, LUA_TFUNCTION);
 				continue;
+			case '$':
+				continue;
 			default:
 				break;
 		}
@@ -831,6 +841,7 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 					return 0;
 				*(write++) = API_VALUE_FALSE + lua_toboolean(L, i+1);
 				continue;
+			case '$':
 			case 'I': // String or integer
 			case 's': // String
 			do_string:
