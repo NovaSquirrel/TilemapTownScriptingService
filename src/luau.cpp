@@ -373,7 +373,7 @@ void VM::thread_function() {
 		//fprintf(stderr, "VM run scripts status: %d\n", status);
 		switch (status) {
 			case RUN_THREADS_ALL_WAITING:
-				puts("All threads are waiting");
+				fprintf(stderr, "All threads are waiting\n");
 				if(this->is_any_script_sleeping) {
 					fprintf(stderr, "Sleeping...\n");
 					struct timespec now_ts;

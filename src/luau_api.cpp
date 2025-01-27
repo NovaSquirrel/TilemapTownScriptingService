@@ -325,50 +325,39 @@ static int tt_tt_owner_say(lua_State* L) {
 }
 
 int push_values_from_message_data(lua_State *L, int num_values, char *data, size_t data_len) {
-	fprintf(stderr, "push_values_from_message_data 1\n");
 	if (!data)
 		return 0;
-	fprintf(stderr, "push_values_from_message_data 2\n");
 	void *original_data = (void*)data;
 
 	// Push the data contained in the message
 	const char *data_end = (const char *)data + data_len;
 	int values_pushed = 0;
 
-	fprintf(stderr, "push_values_from_message_data 3\n");
-
 	while (num_values && data < data_end) {
-		fprintf(stderr, "push_values_from_message_data 4\n");
 		int type = *(data++);
 		int n;
 
 		switch (type) {
 			case API_VALUE_NIL:
-				fprintf(stderr, "push_values_from_message_data 5\n");
 				lua_pushnil(L);
 				break;
 			case API_VALUE_FALSE:
-				fprintf(stderr, "push_values_from_message_data 6\n");
 				lua_pushboolean(L, 0);
 				break;
 			case API_VALUE_TRUE:
-				fprintf(stderr, "push_values_from_message_data 7\n");
 				lua_pushboolean(L, 1);
 				break;
 			case API_VALUE_INTEGER:
-				fprintf(stderr, "push_values_from_message_data 8\n");
 				lua_pushinteger(L, *(int*)data);
 				data += 4;
 				break;
 			case API_VALUE_STRING:
-				fprintf(stderr, "push_values_from_message_data 9\n");
 				n = *(int*)data;
 				data += 4;
 				lua_pushlstring(L, data, n);
 				data += n;
 				break;
 			case API_VALUE_JSON:
-				fprintf(stderr, "push_values_from_message_data 10\n");
 				n = *(int*)data;
 				data += 4;
 				push_json_data(L, data, n);
@@ -400,6 +389,12 @@ static int tt_tt_read_text_item(lua_State *L) {
 	if (thread)
 		return thread->send_api_call(L, "readitem", true, 1, "I");
 	return 0;
+}
+static int tt_tt_stop_script(lua_State *L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		thread->send_api_call(L, "stopscript", false, 0, "");
+	return lua_break(L);
 }
 static int tt_tt_get_result(lua_State *L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
@@ -683,6 +678,7 @@ void register_lua_api(lua_State* L) {
 		{"_result",         tt_tt_get_result},
 		{"run_text_item",   tt_tt_run_text_item},
 		{"read_text_item",  tt_tt_read_text_item},
+		{"stop_script",     tt_tt_stop_script},
         {NULL, NULL},
     };
 
