@@ -370,11 +370,22 @@ void VM::thread_function() {
 			break;
 
 		RunThreadsStatus status = this->run_scripts();
+
+		// Stop any scripts that have had threads get terminated too many times
+		for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ) {
+			if ((*itr).second.get()->count_force_terminate >= TERMINATE_SCRIPT_AFTER_STRIKES) {
+				//fprintf(stderr, "Stopping script terminated too many times\n");
+				itr = this->scripts.erase(itr);
+			} else {
+				++itr;
+			}
+		}
+
 		//fprintf(stderr, "VM run scripts status: %d\n", status);
 		switch (status) {
 			case RUN_THREADS_ALL_WAITING:
 				fprintf(stderr, "All threads are waiting\n");
-				if(this->is_any_script_sleeping) {
+				if (this->is_any_script_sleeping) {
 					fprintf(stderr, "Sleeping...\n");
 					struct timespec now_ts;
 					clock_gettime(CLOCK_MONOTONIC, &now_ts);
@@ -436,6 +447,11 @@ Script::~Script() {
 }
 
 bool Script::compile_and_start(const char *source, size_t source_len) {
+	if (this->threads.size() >= MAX_SCRIPT_THREAD_COUNT) {
+		//fprintf(stderr, "Too many script threads! Entity %d\n", this->entity_id);
+		return true;
+	}
+
 	size_t bytecodeSize = 0;
 
 	char* bytecode = luau_compile(source, source_len, NULL, &bytecodeSize);
@@ -472,6 +488,10 @@ bool Script::compile_and_start(const char *source, size_t source_len) {
 }
 
 bool Script::start_callback(int callback_id, int data_item_count, void *data, size_t data_len) {
+	if (this->threads.size() >= MAX_SCRIPT_THREAD_COUNT) {
+		//fprintf(stderr, "Too many script threads! Entity %d\n", this->entity_id);
+		return true;
+	}
 	if (callback_id < 0 || callback_id >= CALLBACK_COUNT || this->callback_ref[callback_id] == LUA_NOREF) {
 		if (data)
 			free(data);
@@ -488,6 +508,18 @@ bool Script::start_callback(int callback_id, int data_item_count, void *data, si
 		this->threads.insert(std::unique_ptr<ScriptThread>(thread) );
 		return false;
 	}
+}
+
+bool Script::start_thread(lua_State *from) {
+	if (this->threads.size() >= MAX_SCRIPT_THREAD_COUNT) {
+		//fprintf(stderr, "Too many script threads! Entity %d\n", this->entity_id);
+		return true;
+	}
+
+	ScriptThread *thread = new ScriptThread(this);
+	lua_xmove(from, thread->L, 1);
+	this->threads.insert(std::unique_ptr<ScriptThread>(thread) );
+	return false;
 }
 
 void update_thread_wakeup_time(Script *s, ScriptThread *thread) {
@@ -625,7 +657,7 @@ ScriptThread::ScriptThread(Script *s) {
 	// Initialize members
 	this->interrupted = nullptr;
 	this->nanoseconds = 0;
-	this->total_nanoseconds = 0;
+	this->count_force_sleeps = 0;
 	this->is_sleeping = false;
 	this->is_waiting_for_api = false;
 	this->is_thread_stopped = false;
@@ -653,15 +685,17 @@ int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state, int arg_
 	unsigned long long end_nanoseconds = end_ts.tv_sec * ONE_SECOND_IN_NANOSECONDS + end_ts.tv_nsec;
 	unsigned long long nanoseconds = end_nanoseconds - start_nanoseconds;
 	this->nanoseconds += nanoseconds;
-	this->total_nanoseconds += nanoseconds;
 
-	if(this->total_nanoseconds > TERMINATE_THREAD_AT_MS * ONE_MILLISECOND_IN_NANOSECONDS) {
-		//fprintf(stderr, "Stopping a stuck thread\n");
-		this->stop();
-		return LUA_OK;
-	}
 	if(this->nanoseconds > PENALTY_THRESHOLD_MS * ONE_MILLISECOND_IN_NANOSECONDS) {
 		//fprintf(stderr, "Making a thread sleep\n");
+		this->count_force_sleeps++;
+		if (this->count_force_sleeps >= TERMINATE_THREAD_AFTER_STRIKES) {
+			//fprintf(stderr, "Stopping a stuck thread\n");
+			this->stop();
+			this->script->count_force_terminate++;
+			return LUA_OK;
+		}
+
 		this->is_sleeping = true;
 		this->sleep_for_ms(PENALTY_SLEEP_MS);
 	}
@@ -731,9 +765,9 @@ void ScriptThread::sleep_for_ms(int ms) {
 	if (ms == 0)
 		return;
 	this->is_sleeping = true;
-	if (ms >= 1000)
+	if (ms >= 1000) {
 		this->nanoseconds = 0;
-
+	}
 	clock_gettime(CLOCK_MONOTONIC, &this->wake_up_at);
 	unsigned long long desired_nanoseconds = this->wake_up_at.tv_nsec + ms * ONE_MILLISECOND_IN_NANOSECONDS;
 	if (desired_nanoseconds > 999999999) {

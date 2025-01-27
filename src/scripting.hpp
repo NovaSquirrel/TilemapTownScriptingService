@@ -43,8 +43,10 @@
 
 #define PENALTY_THRESHOLD_MS 500
 #define PENALTY_SLEEP_MS 2500
-#define TERMINATE_THREAD_AT_MS 2000
+#define TERMINATE_THREAD_AFTER_STRIKES 3
+#define TERMINATE_SCRIPT_AFTER_STRIKES 3
 #define API_RESULT_TIMEOUT_IN_SECONDS 30
+#define MAX_SCRIPT_THREAD_COUNT 10
 
 #define MESSAGE_HEADER_SIZE (4*3+1)
 
@@ -169,6 +171,7 @@ class Script {
 	bool was_scheduled_yet;
 	std::unordered_set <std::unique_ptr<ScriptThread>> threads;
 	lua_State *L;
+	int count_force_terminate;    // Number of times any of this script's threads were forcibly made to sleep
 
 public:
 	int entity_id;                // Entity that this script controls (if negative, it's temporary)
@@ -181,6 +184,7 @@ public:
 
 	bool compile_and_start(const char *source, size_t source_len);
 	bool start_callback(int callback_id, int data_item_count, void *data, size_t data_len);
+	bool start_thread(lua_State *from);
 	RunThreadsStatus run_threads();
 	bool shutdown();
 
@@ -199,6 +203,7 @@ class ScriptThread {
 	unsigned long long total_nanoseconds; // Amount of nanoseconds this thread has been running for (to just force stop the script)
 	bool is_thread_stopped;    // Thread was forcibly stopped
 	lua_State *L;              // This thread's state
+	int count_force_sleeps;    // Number of times this thread was forcibly made to sleep
 
 public:
 	bool is_sleeping;          // Currently sleeping

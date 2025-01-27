@@ -396,6 +396,14 @@ static int tt_tt_stop_script(lua_State *L) {
 		thread->send_api_call(L, "stopscript", false, 0, "");
 	return lua_break(L);
 }
+static int tt_tt_start_thread(lua_State *L) {
+	luaL_checktype(L, 1, LUA_TFUNCTION);
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		thread->script->start_thread(L);
+	return 0;
+}
+
 static int tt_tt_get_result(lua_State *L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread) {
@@ -669,7 +677,7 @@ void register_lua_api(lua_State* L) {
 
     static const luaL_Reg misc_funcs[] = {
 		{"sleep",           tt_tt_sleep},
-		{"ownersay",        tt_tt_owner_say},
+		{"owner_say",       tt_tt_owner_say},
 		{"from_json",       tt_tt_decode_json},
 		//{"to_json",         tt_tt_encode_json},
 		{"memory_used",     tt_tt_memory_used},
@@ -679,6 +687,7 @@ void register_lua_api(lua_State* L) {
 		{"run_text_item",   tt_tt_run_text_item},
 		{"read_text_item",  tt_tt_read_text_item},
 		{"stop_script",     tt_tt_stop_script},
+		{"start_thread",    tt_tt_start_thread},
         {NULL, NULL},
     };
 
@@ -718,7 +727,7 @@ void register_lua_api(lua_State* L) {
 		{"put",             tt_bitmap_2x4_object_put},
 		{"get",             tt_bitmap_2x4_object_get},
 		{"clear",           tt_bitmap_2x4_object_clear},
-		{"rectfill",        tt_bitmap_2x4_object_rectfill},
+		{"rect_fill",       tt_bitmap_2x4_object_rectfill},
 		{"rect",            tt_bitmap_2x4_object_rect},
 		{"line",            tt_bitmap_2x4_object_line},
 		{"scroll",          tt_bitmap_2x4_object_scroll},
