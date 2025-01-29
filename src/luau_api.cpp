@@ -139,11 +139,7 @@ static int tt_custom_print(lua_State* L) {
 static void create_entity_table(lua_State* L, const char *ID, int ID_int) {
 	lua_newtable(L);
 
-	lua_newtable(L);
-	lua_getglobal(L, "Entity");
-	lua_setfield(L, -2, "__index");
-	lua_setreadonly(L, -1, true);
-
+	luaL_getmetatable(L, "Entity");
 	lua_setmetatable(L, -2);
 
 	lua_pushstring(L, ID);
@@ -295,17 +291,90 @@ static int tt_storage_list(lua_State* L) {
 		return thread->send_api_call(L, "s_list", true, 0, "s");
 	return 0;
 }
-static int tt_mini_tilemap_new(lua_State* L) {
-	return 0;
-}
 static int tt_mini_tilemap_tile(lua_State* L) {
-	return 0;
+	int x = luaL_checkinteger(L, 1);
+	int y = luaL_checkinteger(L, 2);
+	lua_pushinteger(L, (x & 63) | ((y&63) * 64));
+	return 1;
+}
+static int tt_mini_tilemap_new(lua_State* L) {
+	lua_newtable(L);
+
+	luaL_getmetatable(L, "MiniTilemap");
+	lua_setmetatable(L, -2);
+
+	// Set up the fields
+	lua_pushliteral(L, "mini_town.png");
+	lua_setfield(L, -2, "tileset_url");
+	lua_pushboolean(L, false);
+	lua_setfield(L, -2, "clickable");
+	lua_pushboolean(L, false);
+	lua_setfield(L, -2, "visible");
+	lua_pushinteger(L, 0);
+	lua_setfield(L, -2, "transparent_tile");
+
+	lua_pushinteger(L, 4);
+	lua_setfield(L, -2, "map_width");
+	lua_pushinteger(L, 4);
+	lua_setfield(L, -2, "map_height");
+
+	lua_pushinteger(L, 8);
+	lua_setfield(L, -2, "tile_width");
+	lua_pushinteger(L, 8);
+	lua_setfield(L, -2, "tile_height");
+
+	lua_pushinteger(L, 0);
+	lua_setfield(L, -2, "offset_x");
+	lua_pushinteger(L, 0);
+	lua_setfield(L, -2, "offset_y");
+
+	struct mini_tilemap *map = static_cast<struct mini_tilemap *>(lua_newuserdatatagged(L, sizeof(struct mini_tilemap), USER_DATA_MINI_TILEMAP));
+	memset(map, 0, sizeof(struct mini_tilemap));
+	lua_setfield(L, -2, "_map");
+
+	return 1;
 }
 static int tt_bitmap_2x4_new(lua_State* L) {
-	return 0;
+	lua_newtable(L);
+
+	luaL_getmetatable(L, "Bitmap2x4");
+	lua_setmetatable(L, -2);
+
+	// Set up the fields
+	lua_pushliteral(L, "bitmap.png");
+	lua_setfield(L, -2, "tileset_url");
+	lua_pushboolean(L, false);
+	lua_setfield(L, -2, "clickable");
+	lua_pushboolean(L, false);
+	lua_setfield(L, -2, "visible");
+	lua_pushinteger(L, 0);
+	lua_setfield(L, -2, "transparent_tile");
+
+	lua_pushinteger(L, 4);
+	lua_setfield(L, -2, "map_width");
+	lua_pushinteger(L, 4);
+	lua_setfield(L, -2, "map_height");
+
+	lua_pushinteger(L, 8);
+	lua_setfield(L, -2, "tile_width");
+	lua_pushinteger(L, 8);
+	lua_setfield(L, -2, "tile_height");
+
+	lua_pushinteger(L, 0);
+	lua_setfield(L, -2, "offset_x");
+	lua_pushinteger(L, 0);
+	lua_setfield(L, -2, "offset_y");
+
+	struct mini_tilemap *map = static_cast<struct mini_tilemap *>(lua_newuserdatatagged(L, sizeof(struct mini_tilemap), USER_DATA_MINI_TILEMAP));
+	memset(map, 0, sizeof(struct mini_tilemap));
+	lua_setfield(L, -2, "_map");
+
+	return 1;
 }
 static int tt_bitmap_sprite_new(lua_State* L) {
-	return 0;
+	struct bitmap_sprite *sprite = static_cast<struct bitmap_sprite *>(lua_newuserdatatagged(L, sizeof(struct bitmap_sprite), USER_DATA_BITMAP_SPRITE));
+	memset(sprite, 0, sizeof(struct bitmap_sprite));
+	return 1;
 }
 static int tt_tt_sleep(lua_State* L) {
 	int delay_ms = luaL_checkinteger(L, 1);
@@ -574,55 +643,104 @@ static int tt_entity_object_have_permission(lua_State* L) {
 		return thread->send_api_call(L, "e_havepermission", true, 1, "Es");
 	return 0;
 }
-static int tt_mini_tilemap_object_resize(lua_State* L) {
-	return 0;
-}
 static int tt_mini_tilemap_object_put(lua_State* L) {
+	lua_getfield(L, 1, "_map");
+	struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, -1, USER_DATA_MINI_TILEMAP));
+	if (!map)
+		return 0;
+	int x = luaL_checkinteger(L, 1);
+	int y = luaL_checkinteger(L, 2);
+	int t = luaL_checkinteger(L, 3);
+	if (x >= 0 && y >= 0 && x < MINI_TILEMAP_MAX_MAP_WIDTH && y < MINI_TILEMAP_MAX_MAP_HEIGHT) {
+		map->tilemap[y][x] = t;
+	}
 	return 0;
 }
 static int tt_mini_tilemap_object_get(lua_State* L) {
+	lua_getfield(L, 1, "_map");
+	struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, -1, USER_DATA_MINI_TILEMAP));
+	if (!map)
+		return 0;
+	int x = luaL_checkinteger(L, 1);
+	int y = luaL_checkinteger(L, 2);
+	if (x >= 0 && y >= 0 && x < MINI_TILEMAP_MAX_MAP_WIDTH && y < MINI_TILEMAP_MAX_MAP_HEIGHT) {
+		lua_pushinteger(L, map->tilemap[y][x]);
+		return 1;
+	}
 	return 0;
 }
 static int tt_mini_tilemap_object_clear(lua_State* L) {
+	/*
+	struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_MINI_TILEMAP));
+	if (!map)
+		return 0;
+	int t = luaL_checkinteger(L, 1);
+	for (int x=0; x<MINI_TILEMAP_MAX_MAP_WIDTH; x++) {
+		for (int y=0; y<MINI_TILEMAP_MAX_MAP_HEIGHT; y++) {
+			map->tilemap[y][x] = t;
+		}
+	}
+	*/
 	return 0;
 }
 static int tt_mini_tilemap_object_rectfill(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_MINI_TILEMAP));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_mini_tilemap_object_scroll(lua_State* L) {
-	return 0;
-}
-static int tt_bitmap_2x4_object_resize(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_MINI_TILEMAP));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_put(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_get(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_clear(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_rectfill(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_rect(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_line(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_scroll(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_draw_sprite(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_draw_sprite_on(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 static int tt_bitmap_2x4_object_draw_sprite_off(lua_State* L) {
+	//struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, 1, USER_DATA_BITMAP_2X4));
+	//fprintf(stderr, "Map %p\n", map);
 	return 0;
 }
 
@@ -713,7 +831,6 @@ void register_lua_api(lua_State* L) {
     };
 
     static const luaL_Reg mini_tilemap_object_funcs[] = {
-		{"resize",     tt_mini_tilemap_object_resize},
 		{"put",        tt_mini_tilemap_object_put},
 		{"get",        tt_mini_tilemap_object_get},
 		{"clear",      tt_mini_tilemap_object_clear},
@@ -723,7 +840,6 @@ void register_lua_api(lua_State* L) {
     };
 
     static const luaL_Reg bitmap_2x4_object_funcs[] = {
-		{"resize",          tt_bitmap_2x4_object_resize},
 		{"put",             tt_bitmap_2x4_object_put},
 		{"get",             tt_bitmap_2x4_object_get},
 		{"clear",           tt_bitmap_2x4_object_clear},
@@ -742,8 +858,6 @@ void register_lua_api(lua_State* L) {
         {NULL, NULL},
     };
 
-    lua_pushvalue(L, LUA_GLOBALSINDEX);
-
     luaL_register(L, "entity",        entity_funcs);
     luaL_register(L, "map",           map_funcs);
     luaL_register(L, "storage",       storage_funcs);
@@ -752,10 +866,30 @@ void register_lua_api(lua_State* L) {
     luaL_register(L, "bitmap_sprite", bitmap_sprite_funcs);
     luaL_register(L, "tt",            misc_funcs);
     luaL_register(L, "_G",            override_funcs);
+    lua_pop(L, 8);
 
     luaL_register(L, "Entity",        entity_object_funcs);
     luaL_register(L, "MiniTilemap",   mini_tilemap_object_funcs);
     luaL_register(L, "Bitmap2x4",     bitmap_2x4_object_funcs);
+    lua_pop(L, 3);
 
+	// ------------
+
+    luaL_newmetatable(L, "Entity");
+	lua_getglobal(L, "Entity");
+	lua_setfield(L, -2, "__index");
+	lua_setreadonly(L, -1, true);
+    lua_pop(L, 1);
+
+    luaL_newmetatable(L, "MiniTilemap");
+	lua_getglobal(L, "MiniTilemap");
+	lua_setfield(L, -2, "__index");
+	lua_setreadonly(L, -1, true);
+    lua_pop(L, 1);
+
+    luaL_newmetatable(L, "Bitmap2x4");
+	lua_getglobal(L, "Bitmap2x4");
+	lua_setfield(L, -2, "__index");
+	lua_setreadonly(L, -1, true);
     lua_pop(L, 1);
 }

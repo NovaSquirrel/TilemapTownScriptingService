@@ -122,6 +122,8 @@ void callback_interrupt(lua_State* L, int gc) {
 		}
 		if (now_ts.tv_sec > thread->preempt_at.tv_sec || (now_ts.tv_sec == thread->preempt_at.tv_sec && now_ts.tv_nsec >= thread->preempt_at.tv_nsec)) {
 //			throw std::runtime_error("Script ran for too long");
+			thread->script->count_preempts++;
+			thread->script->vm->count_preempts++;
 			thread->was_preempted = true;
 			lua_break(L);
 			return;
@@ -137,6 +139,9 @@ VM::VM(int user_id) {
 	this->incoming_message_future = incoming_message_promise.get_future();
 	this->have_incoming_message = false;
 	this->next_api_result_key = 1;
+
+	this->count_force_terminate = 0;
+	this->count_preempts = 0;
 
 	this->L = lua_newstate(lua_allocator, this);
     luaL_openlibs(this->L);
@@ -195,6 +200,7 @@ RunThreadsStatus VM::run_scripts() {
 	#endif
 	bool any_scripts_not_done; // At least one script needs to be resumed in the future
 	bool all_scripts_waiting;  // All scripts are waiting on a timer or API result or something else
+	bool any_preempted_script_skipped_over = false;
 
 	this->is_any_script_sleeping = false;
 
@@ -210,6 +216,8 @@ RunThreadsStatus VM::run_scripts() {
 		for(auto itr = this->scripts.begin(); itr != this->scripts.end(); ++itr) {
 			Script *script = (*itr).second.get();
 			if (script->was_scheduled_yet) {
+				if (script->was_preempted)
+					any_preempted_script_skipped_over = true;
 				#ifdef SCHEDULING_PRINTS
 				fprintf(stderr, "script %p already scheduled\n", script);
 				#endif
@@ -221,6 +229,7 @@ RunThreadsStatus VM::run_scripts() {
 			script->was_scheduled_yet = true;
 			any_scripts_newly_scheduled = true;
 
+			script->was_preempted = false;
 			RunThreadsStatus status = script->run_threads();
 			#ifdef SCHEDULING_PRINTS
 			fprintf(stderr, "Script status %d\n", status);
@@ -245,6 +254,7 @@ RunThreadsStatus VM::run_scripts() {
 					any_scripts_not_done = true;
 					break;
 				case RUN_THREADS_PREEMPTED:
+					script->was_preempted = true;
 					return RUN_THREADS_PREEMPTED;
 			}
 		}
@@ -261,7 +271,7 @@ RunThreadsStatus VM::run_scripts() {
 	}
 
 	if (!any_scripts_not_done)
-		return RUN_THREADS_FINISHED;
+		return any_preempted_script_skipped_over ? RUN_THREADS_KEEP_GOING : RUN_THREADS_FINISHED;
 	if (all_scripts_waiting)
 		return RUN_THREADS_ALL_WAITING;
 	return RUN_THREADS_KEEP_GOING;
@@ -351,6 +361,23 @@ void VM::thread_function() {
 						}
 						break;
 					}
+					case VM_MESSAGE_STATUS_QUERY:
+					{
+						char buffer[500];
+						sprintf(buffer, "User %d [%ld memory, %ld scripts, %d terminates, %d preempts][ul]", this->user_id, this->total_allocated_memory / 1024, this->scripts.size(), this->count_force_terminate, this->count_preempts);
+						std::string str = buffer;
+
+						for(auto itr = scripts.begin(); itr != scripts.end(); ++itr) {
+							Script *script = (*itr).second.get();
+							sprintf(buffer, "[li]%d<%ld threads, %d terminates, %d preempts>[/li]", script->entity_id, script->threads.size(), script->count_force_terminate, script->count_preempts);
+							str += buffer;
+						}
+
+						str += "[/ul]";
+						const char *c_str = str.c_str();
+						this->send_message(VM_MESSAGE_STATUS_QUERY, message.other_id, message.status, c_str, strlen(c_str));
+						break;
+					}
 					default:
 						break;
 				}
@@ -424,6 +451,9 @@ Script::Script(VM *vm, int entity_id) {
 	this->vm = vm;
 	this->entity_id = entity_id;
 	this->was_scheduled_yet = false;
+
+	this->count_force_terminate = 0;
+	this->count_preempts = 0;
 
 	// No callbacks
 	for (int i=0; i<CALLBACK_COUNT; i++)
@@ -539,6 +569,7 @@ RunThreadsStatus Script::run_threads() {
 	#endif
 	bool any_threads_run = false;
 	bool trying_again_after_clearing_scheduled_flag = false;
+	bool any_preempted_thread_skipped_over = false;
 	this->is_any_thread_sleeping = false;
 
 	if(this->threads.empty())
@@ -549,6 +580,8 @@ RunThreadsStatus Script::run_threads() {
 		for (auto itr = this->threads.begin(); itr != this->threads.end(); ) {
 			ScriptThread *thread = (*itr).get();
 			if (thread->was_scheduled_yet) {
+				if (thread->was_preempted)
+					any_preempted_thread_skipped_over = true;
 				#ifdef SCHEDULING_PRINTS
 				fprintf(stderr, "\tthread %p already scheduled\n", thread);
 				#endif
@@ -631,7 +664,7 @@ RunThreadsStatus Script::run_threads() {
 	}
 
 	if(this->threads.empty())
-		return RUN_THREADS_FINISHED;
+		return any_preempted_thread_skipped_over ? RUN_THREADS_KEEP_GOING : RUN_THREADS_FINISHED;
 	if(!any_threads_run)
 		return RUN_THREADS_ALL_WAITING;
 	return RUN_THREADS_KEEP_GOING;
@@ -693,6 +726,7 @@ int ScriptThread::resume_script_thread_with_stopwatch(lua_State *state, int arg_
 			//fprintf(stderr, "Stopping a stuck thread\n");
 			this->stop();
 			this->script->count_force_terminate++;
+			this->script->vm->count_force_terminate++;
 			return LUA_OK;
 		}
 
@@ -754,6 +788,7 @@ bool ScriptThread::run(int arg_count) {
 }
 
 void ScriptThread::stop() {
+	this->was_preempted = false;
 	if (!this->is_thread_stopped) {
 		lua_resetthread(this->L);
 		lua_unref(this->script->L, this->thread_reference);
@@ -765,8 +800,13 @@ void ScriptThread::sleep_for_ms(int ms) {
 	if (ms == 0)
 		return;
 	this->is_sleeping = true;
-	if (ms >= 1000) {
-		this->nanoseconds = 0;
+	if (ms >= 500) {
+		// If the delay is half a second or more, the program is probably behaving well, so the penalty timer should get reduced or reset
+		unsigned long long subtract = ms * ONE_MILLISECOND_IN_NANOSECONDS / 2;
+		if (this->nanoseconds >= subtract)
+			this->nanoseconds -= subtract;
+		else
+			this->nanoseconds = 0;
 	}
 	clock_gettime(CLOCK_MONOTONIC, &this->wake_up_at);
 	unsigned long long desired_nanoseconds = this->wake_up_at.tv_nsec + ms * ONE_MILLISECOND_IN_NANOSECONDS;

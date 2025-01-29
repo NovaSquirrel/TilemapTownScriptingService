@@ -108,6 +108,38 @@ int main(void) {
 				}
 				break;
 			}
+			case VM_MESSAGE_STATUS_QUERY:
+			{
+				if (status == 0) {
+					if (user_id == 0) {
+						for(auto itr = vm_by_user.begin(); itr != vm_by_user.end(); ++itr) {
+							VM *vm = (*itr).second.get();
+							vm->receive_message(type, entity_id, other_id, status, nullptr, 0);
+						}
+					} else {
+						auto it = vm_by_user.find(user_id);
+						if(it != vm_by_user.end()) {
+							VM *vm = (*it).second.get();
+							vm->receive_message(type, entity_id, other_id, status, nullptr, 0);
+						}
+					}
+				} else if (status == 1) {
+					std::string message = "[ul]";
+					char buffer[500];
+
+					for(auto itr = vm_by_user.begin(); itr != vm_by_user.end(); ++itr) {
+						VM *vm = (*itr).second.get();
+						sprintf(buffer, "[li]User %d [%ld memory, %d terminates, %d preempts][/li]", vm->user_id, vm->total_allocated_memory / 1024, vm->count_force_terminate, vm->count_preempts);
+						message += buffer;
+					}
+
+					message += "[/ul]";
+					const char *c_str = message.c_str();
+					send_outgoing_message(type, 0, 0, other_id, 0, c_str, strlen(c_str));
+				}
+				// data should be null here
+				break;
+			}
 			case VM_MESSAGE_SET_CALLBACK:
 			case VM_MESSAGE_SCRIPT_ERROR:
 				break;

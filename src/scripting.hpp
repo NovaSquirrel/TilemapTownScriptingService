@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdint.h>
 
 #include <queue>
 #include <string>
@@ -95,6 +96,7 @@ enum VM_MessageType {
 	VM_MESSAGE_CALLBACK,      // User ID, Entity ID, Other = Callback type, Status = argument/result count | Data = callback data, in the same format as the API call
 	VM_MESSAGE_SET_CALLBACK,  // User ID, Entity ID, Other = Callback type, Status = 1 to turn it on, 0 to turn it off
 	VM_MESSAGE_SCRIPT_ERROR,  // User ID, Entity ID, Other = Callback type | Data = error message
+	VM_MESSAGE_STATUS_QUERY,  // User ID, Entity ID, Other = Callback type | Data = status message
 };
 
 enum API_Value_Type {
@@ -137,6 +139,9 @@ public:
 	size_t total_allocated_memory;  // Amount of bytes this VM is currently using
 	size_t memory_allocation_limit; // Maximum number of bytes this VM is allowed to use
 
+	int count_force_terminate;
+	int count_preempts;
+
 	// Thread communication
 	std::promise<void> incoming_message_promise;
 	std::future<void> incoming_message_future;
@@ -171,11 +176,14 @@ class Script {
 	bool was_scheduled_yet;
 	std::unordered_set <std::unique_ptr<ScriptThread>> threads;
 	lua_State *L;
-	int count_force_terminate;    // Number of times any of this script's threads were forcibly made to sleep
 
 public:
 	int entity_id;                // Entity that this script controls (if negative, it's temporary)
 	int callback_ref[CALLBACK_COUNT];
+
+	int count_force_terminate;    // Number of times any of this script's threads were forcibly made to sleep
+	int count_preempts;
+	bool was_preempted;           // Was the script stopped because one of the threads ran too long?
 
 	bool is_any_thread_sleeping;  // Is any thread currently sleeping?
 	timespec earliest_wake_up_at; // If any thread is sleeping, then it's the earliest time any of them will wake up
@@ -229,6 +237,24 @@ public:
 	ScriptThread(Script *script);
 	~ScriptThread();
 	friend class Script;
+};
+
+///////////////////////////////////////////////////////////
+
+enum user_data_tag {
+	USER_DATA_MINI_TILEMAP = 1,
+	USER_DATA_BITMAP_SPRITE = 2,
+};
+
+#define MINI_TILEMAP_MAX_MAP_WIDTH  24
+#define MINI_TILEMAP_MAX_MAP_HEIGHT 24
+
+struct mini_tilemap {
+	uint16_t tilemap[MINI_TILEMAP_MAX_MAP_HEIGHT][MINI_TILEMAP_MAX_MAP_WIDTH];
+};
+
+struct bitmap_sprite {
+	uint16_t pixels[16];
 };
 
 ///////////////////////////////////////////////////////////
