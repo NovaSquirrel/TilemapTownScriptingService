@@ -671,7 +671,7 @@ RunThreadsStatus Script::run_threads() {
 }
 
 bool Script::shutdown() {
-	fprintf(stderr, "Shutting down script (within service)\n");
+	//fprintf(stderr, "Shutting down script (within service)\n");
 	this->start_callback(CALLBACK_MISC_SHUTDOWN, 0, nullptr, 0);
 	return true;
 }
