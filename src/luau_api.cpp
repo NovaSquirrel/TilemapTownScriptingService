@@ -398,7 +398,6 @@ static int tt_bitmap_sprite_new(lua_State* L) {
 		if (width > sprite->width)
 			sprite->width = width;
 	}
-	fprintf(stderr, "Sprite size %d %d\n", sprite->width, sprite->height);
 	return 1;
 }
 static int tt_tt_sleep(lua_State* L) {

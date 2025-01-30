@@ -72,13 +72,21 @@ int main(void) {
 				send_outgoing_message(VM_MESSAGE_PONG, 0, 0, 1, 0, nullptr, 0);
 				break;
 			case VM_MESSAGE_SHUTDOWN:
-				fprintf(stderr, "Shutting down scripting service\n");
-				quitting = true;
+				if (user_id != 0) {
+					auto it = vm_by_user.find(user_id);
+					if(it != vm_by_user.end()) {
+						VM *vm = (*it).second.get();
+						vm->receive_message(type, entity_id, other_id, status, data, data_length);
+					}
+				} else {
+					fprintf(stderr, "Shutting down scripting service\n");
+					quitting = true;
 
-				// Shut down all VMs
-				for(auto itr = vm_by_user.begin(); itr != vm_by_user.end(); ++itr) {
-					VM *vm = (*itr).second.get();
-					vm->receive_message(type, entity_id, other_id, status, data, data_length);
+					// Shut down all VMs
+					for(auto itr = vm_by_user.begin(); itr != vm_by_user.end(); ++itr) {
+						VM *vm = (*itr).second.get();
+						vm->receive_message(type, entity_id, other_id, status, data, data_length);
+					}
 				}
 				break;
 			case VM_MESSAGE_START_SCRIPT:
