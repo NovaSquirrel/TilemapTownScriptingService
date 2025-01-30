@@ -107,6 +107,7 @@ enum API_Value_Type {
 	API_VALUE_STRING,
 	API_VALUE_JSON,
 	API_VALUE_TABLE,
+	API_VALUE_MINI_TILEMAP,
 };
 
 /*
@@ -248,12 +249,15 @@ enum user_data_tag {
 
 #define MINI_TILEMAP_MAX_MAP_WIDTH  24
 #define MINI_TILEMAP_MAX_MAP_HEIGHT 24
+#define BITMAP_MAX_MAP_WIDTH  (24*4)
+#define BITMAP_MAX_MAP_HEIGHT (24*2)
 
 struct mini_tilemap {
 	uint16_t tilemap[MINI_TILEMAP_MAX_MAP_HEIGHT][MINI_TILEMAP_MAX_MAP_WIDTH];
 };
 
 struct bitmap_sprite {
+	int width, height;
 	uint16_t pixels[16];
 };
 

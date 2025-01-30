@@ -135,7 +135,7 @@ VM::VM(int user_id) {
 	fprintf(stderr, "new VM\n");
 	this->user_id = user_id;
 	this->total_allocated_memory = 0;
-	this->memory_allocation_limit = 2*1024*1024;
+	this->memory_allocation_limit = 3*1024*1024;
 	this->incoming_message_future = incoming_message_promise.get_future();
 	this->have_incoming_message = false;
 	this->next_api_result_key = 1;
@@ -671,7 +671,7 @@ RunThreadsStatus Script::run_threads() {
 }
 
 bool Script::shutdown() {
-	fprintf(stderr, "Shutting down script\n");
+	fprintf(stderr, "Shutting down script (within service)\n");
 	this->start_callback(CALLBACK_MISC_SHUTDOWN, 0, nullptr, 0);
 	return true;
 }
@@ -855,6 +855,7 @@ void lua_c_function_parameter_check(lua_State *L, int param_count, const char *a
 				if (lua_type(L, i+1) != LUA_TNUMBER && lua_type(L, i+1) != LUA_TSTRING)
 					luaL_typeerrorL(L, i+1, "integer or string");
 				continue;
+			case 'M': // Mini tilemap (TODO: add check to make sure it really is one)
 			case 't': // Table
 				luaL_checktype(L, i+1, LUA_TTABLE);
 				continue;
@@ -947,6 +948,104 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 				*(write++) = API_VALUE_TABLE;
 				// Convert to JSON?
 				break;
+			case 'M':
+			{
+				lua_getfield(L, i+1, "tileset_url");
+				*(write++) = API_VALUE_STRING;
+				s = luaL_tolstring(L, -1, &l);
+				*((int*)write) = l;
+				if (l > 250)
+					return 0;
+				write += 4;
+				memcpy(write, s, l);
+				lua_pop(L, 2);
+				write += l;
+
+				lua_getfield(L, i+1, "visible");
+				*(write++) = API_VALUE_FALSE + lua_toboolean(L, -1);				
+				lua_pop(L, 1);
+
+				lua_getfield(L, i+1, "clickable");
+				*(write++) = API_VALUE_FALSE + lua_toboolean(L, -1);
+				lua_pop(L, 1);
+
+				lua_getfield(L, i+1, "transparent_tile");
+				*(write++) = API_VALUE_INTEGER;
+				*((int*)write) = lua_tointeger(L, -1);
+				write += 4;
+				lua_pop(L, 1);
+
+				lua_getfield(L, i+1, "tile_width");
+				*(write++) = API_VALUE_INTEGER;
+				*((int*)write) = lua_tointeger(L, -1);
+				write += 4;
+				lua_pop(L, 1);
+
+				lua_getfield(L, i+1, "tile_height");
+				*(write++) = API_VALUE_INTEGER;
+				*((int*)write) = lua_tointeger(L, -1);
+				write += 4;
+				lua_pop(L, 1);
+
+				lua_getfield(L, i+1, "offset_x");
+				*(write++) = API_VALUE_INTEGER;
+				*((int*)write) = lua_tointeger(L, -1);
+				write += 4;
+				lua_pop(L, 1);
+
+				lua_getfield(L, i+1, "offset_y");
+				*(write++) = API_VALUE_INTEGER;
+				*((int*)write) = lua_tointeger(L, -1);
+				write += 4;
+				lua_pop(L, 1);
+
+				// Now the whole tilemap at the end
+
+				*(write++) = API_VALUE_MINI_TILEMAP;
+
+				lua_getfield(L, i+1, "map_width");
+				int map_width = lua_tointeger(L, -1);
+				if (map_width <= 0)
+					return 0;
+				if (map_width > MINI_TILEMAP_MAX_MAP_WIDTH)
+					map_width = MINI_TILEMAP_MAX_MAP_WIDTH;
+				*(write++) = map_width;
+				lua_pop(L, 1);
+
+				lua_getfield(L, i+1, "map_height");
+				int map_height = lua_tointeger(L, -1);
+				if (map_height <= 0)
+					return 0;
+				if (map_height > MINI_TILEMAP_MAX_MAP_HEIGHT)
+					map_height = MINI_TILEMAP_MAX_MAP_HEIGHT;
+				*(write++) = map_height;
+				lua_pop(L, 1);
+
+				lua_getfield(L, i+1, "_map");
+				struct mini_tilemap *map = static_cast<struct mini_tilemap*>(lua_touserdatatagged(L, -1, USER_DATA_MINI_TILEMAP));
+				if (!map)
+					return 0;
+				int encoded_map[MINI_TILEMAP_MAX_MAP_WIDTH * MINI_TILEMAP_MAX_MAP_HEIGHT];
+				int encoded_map_index = 0;
+				for (int y=0; y<map_height; y++) {
+					for (int x=0; x<map_width; x++) {
+						uint16_t t = map->tilemap[y][x];
+						if (encoded_map_index != 0 && t == (encoded_map[encoded_map_index-1] & 4095) && encoded_map[encoded_map_index-1] < 0b1111111000000000000)
+							encoded_map[encoded_map_index-1] += 4096;
+						else
+							encoded_map[encoded_map_index++] = t;
+					}
+				}
+				*((uint16_t*)write) = encoded_map_index;
+				write += 2;
+				for (int i=0; i<encoded_map_index; i++) {
+					*((uint32_t*)write) = encoded_map[i];
+					write += 4;
+				}
+				lua_pop(L, 1);
+
+				break;
+			}
 			default:
 				break;
 		}
