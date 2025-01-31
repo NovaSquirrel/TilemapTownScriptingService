@@ -1,2 +1,2 @@
 # TilemapTownScriptingService
- Scripting service for Tilemap Town using Luau
+ Scripting service for [Tilemap Town](https://github.com/NovaSquirrel/TilemapTown/) using [Luau](https://luau.org/)
