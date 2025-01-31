@@ -829,7 +829,7 @@ static int get_bitmap_color_bits(lua_State* L) {
 	lua_getfield(L, 1, "color");
 	int color = luaL_checkinteger(L, -1) & 15;
 	lua_pop(L, 1);
-	return ((color & 0x3) << 4) | ((color & 0xC) << 6);
+	return ((color & 0x3) << 4) | ((color & 0xC) << 8);
 }
 static int get_draw_bit_with_invert(lua_State* L, int arg) {
 	lua_getfield(L, 1, "invert");
