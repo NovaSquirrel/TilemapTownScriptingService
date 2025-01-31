@@ -389,7 +389,7 @@ static int tt_bitmap_sprite_new(lua_State* L) {
 		sprite->pixels[i-1] = row;
 
 		if (row)
-			sprite->height = i-1;
+			sprite->height = i;
 		int width = 0;
 		while (row) {
 			row >>= 1;
