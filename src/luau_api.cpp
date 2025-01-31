@@ -94,7 +94,7 @@ struct callback_name_lookup_item callback_names_self[] = {
 	{"took_controls",      CALLBACK_SELF_TOOK_CONTROLS},
 	{"key_press",          CALLBACK_SELF_KEY_PRESS},
 	{"click",              CALLBACK_SELF_CLICK},
-	{"bot_command_button", CALLBACK_SELF_BOT_COMMAND_BUTTON},
+	{"bot_message_button", CALLBACK_SELF_BOT_COMMAND_BUTTON},
 	{"request_received",   CALLBACK_SELF_REQUEST_RECEIVED},
 	{"use",                CALLBACK_SELF_USE},
 	{"switch_map",         CALLBACK_SELF_SWITCH_MAP},
