@@ -670,6 +670,18 @@ static int tt_entity_object_have_permission(lua_State* L) {
 		return thread->send_api_call(L, "e_havepermission", true, 1, "Es");
 	return 0;
 }
+static int tt_entity_object_take_controls(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_takecontrols", false, 2, "Es");
+	return 0;
+}
+static int tt_entity_object_release_controls(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_releasecontrols", false, 1, "E");
+	return 0;
+}
 
 /////////////////////////////////////////////////
 // Mini tilemap functions
@@ -1314,6 +1326,8 @@ void register_lua_api(lua_State* L) {
 		{"is_loaded",       tt_entity_object_is_loaded},
 		{"have_permission", tt_entity_object_have_permission},
 		{"set_mini_tilemap", tt_entity_object_set_mini_tilemap},
+		{"take_controls",    tt_entity_object_take_controls},
+		{"release_controls", tt_entity_object_release_controls},
         {NULL, NULL},
     };
 
