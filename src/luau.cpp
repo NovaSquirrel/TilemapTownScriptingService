@@ -411,9 +411,9 @@ void VM::thread_function() {
 		//fprintf(stderr, "VM run scripts status: %d\n", status);
 		switch (status) {
 			case RUN_THREADS_ALL_WAITING:
-				fprintf(stderr, "All threads are waiting\n");
+				//fprintf(stderr, "All threads are waiting\n");
 				if (this->is_any_script_sleeping) {
-					fprintf(stderr, "Sleeping...\n");
+					//fprintf(stderr, "Sleeping...\n");
 					struct timespec now_ts;
 					clock_gettime(CLOCK_MONOTONIC, &now_ts);
 					if (is_ts_earlier(now_ts, this->earliest_wake_up_at)) {
@@ -803,6 +803,12 @@ void ScriptThread::sleep_for_ms(int ms) {
 	if (ms >= 500) {
 		// If the delay is half a second or more, the program is probably behaving well, so the penalty timer should get reduced or reset
 		unsigned long long subtract = ms * ONE_MILLISECOND_IN_NANOSECONDS / 2;
+		if (this->nanoseconds >= subtract)
+			this->nanoseconds -= subtract;
+		else
+			this->nanoseconds = 0;
+	} else if (ms >= 100) {
+		unsigned long long subtract = ms * ONE_MILLISECOND_IN_NANOSECONDS / 8;
 		if (this->nanoseconds >= subtract)
 			this->nanoseconds -= subtract;
 		else

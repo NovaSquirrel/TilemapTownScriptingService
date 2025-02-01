@@ -838,6 +838,8 @@ static int get_draw_bit_with_invert(lua_State* L, int arg) {
 	return v;
 }
 void put_bitmap_pixel(struct mini_tilemap *map, int pixel_x, int pixel_y, int color_bits, bool value) {
+	if (pixel_x < 0 || pixel_y < 0)
+		return;
 	int x = pixel_x / 4;
 	int y = pixel_y / 2;
 
@@ -850,6 +852,8 @@ void put_bitmap_pixel(struct mini_tilemap *map, int pixel_x, int pixel_y, int co
 	}
 }
 bool get_bitmap_pixel(struct mini_tilemap *map, int pixel_x, int pixel_y) {
+	if (pixel_x < 0 || pixel_y < 0)
+		return false;
 	int x = pixel_x / 4;
 	int y = pixel_y / 2;
 
@@ -859,6 +863,8 @@ bool get_bitmap_pixel(struct mini_tilemap *map, int pixel_x, int pixel_y) {
 	return false;
 }
 void toggle_bitmap_pixel(struct mini_tilemap *map, int pixel_x, int pixel_y, int color_bits) {
+	if (pixel_x < 0 || pixel_y < 0)
+		return;
 	int x = pixel_x / 4;
 	int y = pixel_y / 2;
 
