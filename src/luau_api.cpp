@@ -1127,7 +1127,7 @@ static void bitmap_write_text(lua_State *L, bool toggle) {
 			unsigned char line = font_4x6[ch*6+yc];
 			for (int xc = 0; xc < 4; xc++) {
 				if (line & (0x80 >> xc)) {
-					if (toggle)
+					if (!toggle)
 						put_bitmap_pixel(map, x+xc, y+yc, color_bits, value);
 					else
 						toggle_bitmap_pixel(map, x+xc, y+yc, color_bits);
@@ -1145,7 +1145,7 @@ static int tt_bitmap_4x2_object_text(lua_State* L) {
 	return 0;
 }
 static int tt_bitmap_4x2_object_text_xor(lua_State* L) {
-	bitmap_write_text(L, false);
+	bitmap_write_text(L, true);
 	return 0;
 }
 
