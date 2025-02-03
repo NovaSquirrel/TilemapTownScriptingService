@@ -1,0 +1,308 @@
+.------------------------------------------------------------------------------
+| Entity
+'------------------------------------------------------------------------------
+
+Scripts normally interact with entities by getting a handle that references a specific entity, and then calling functions on it. You can use the following commands to get these handles:
+
+entity.me()
+Returns a handle for the entity that the script belongs to.
+
+entity.here()
+Returns a handle for the entity that the scripted entity is currently contained inside.
+
+entity.get(id)
+Returns a handle for an entity of your choice; give it an ID either as a string or an integer.
+
+The rest of this document will use "Entity" as a placeholder for one of these values.
+There is also a global table named "Entity", and you can directly use it as an alternative to using handles (Entity.say(id, "Hello") for instance).
+
+---
+
+Entity.id
+Get the entity's ID.
+
+Entity:who()
+Get a table of information relating to this entity, same as you would get from a WHO protocol message.
+This may contain: name, pic, desc, x, y, dir, id, passengers, vehicle, is_following, type, in_user_list, status, status_message, mini_tilemap, mini_tilemap_data, clickable, offset, is_forwarding, chat_listener
+
+Entity:xy()
+Returns x,y coordinates for the entity.
+
+.------------------------------------------------------------------------------
+| Entity actions
+'------------------------------------------------------------------------------
+
+Entity:move(x, y)
+Entity:move(x, y, direction)
+Change the entity's position; "direction" is optional and is an integer from 0 (east) to 7 (north east), going clockwise
+
+Entity:turn(direction)
+Only change an entity's position, do not move it.
+
+Entity:step(direction)
+Take one step in a given direction, but do not move if moving would cause the entity to overlap something dense.
+
+Entity:fly(direction, steps)
+Take a given number of steps in a given direction, ignoring dense tiles.
+
+Entity:say(text)
+Send chat to the entity's current map.
+
+Entity:command(text)
+Execute a command on the current map.
+
+Entity:tell(user, text)
+Send a private message to another user, or another entity
+
+Entity:typing(true/false)
+Mark the entity as having started or stopped typing.
+
+Entity:set_callback(function, event type)
+Registers a callback to be called when a given event happens to the entity; currently a script can only set callbacks relating to its own entity.
+You can only have one function registered per callback at a time; if you register a new one it will unregister the old one. You can use nil in place of a function to just remove any callback that was set.
+
+These are the event types that are available; when the function is called it will receive one parameter (a table, whose contents are specified per-event type here):
+	private_message
+		text - text that was sent
+		name, username, id
+	took_controls
+		keys - if the user's keys were taken, this will be a list of keys that were taken; it the keys were released, this will be an empty list
+		accept - whether the key taking was accepted or not; may not be present
+		name, username, id
+	key_press
+		key - one of "move-n", "move-ne", "move-e", "move-se", "move-s", "move-sw", "move-w", "move-nw", "turn-n", "turn-ne", "turn-e", "turn-se", "turn-s", "turn-sw", "turn-w", "turn-nw", "use-item"
+		down - true if key is pressed, false if not
+		name, username, id
+	click
+		x - pixel X position of the click, relative to the top left of the clicked object
+		y - pixel Y position of the click, relative to the top left of the clicked object
+		button - usually 0, which means a left click, or stylus tap, or anything like that
+		target - "entity" or "mini_tilemap"
+		name, username, id
+	bot_message_button
+		text - text that was given inside of a [bot-message-button] BBCode tag
+		name, username, id
+	request_received
+		type - request type
+		accept_command - command to run to accept this request
+		decline_command - command to run to decline this request
+		name, username, id
+	use
+		name, username, id
+	switch_map
+		id - ID of the map the entity moved to
+
+.------------------------------------------------------------------------------
+| Read map
+'------------------------------------------------------------------------------
+
+Map functions do not use handles; you can currently only run commands relating to the map that the scripted entity is on
+
+map.who()
+Return a table of the users here and their WHO info
+
+map.turf_at(x, y)
+Get the floor at a given coordinate.
+
+map.objs_at(x, y)
+Get a list of objects at a given coordinate.
+
+map.is_dense_at(x, y)
+Check if a given position on the map is dense.
+
+map.tile_lookup(name)
+Given the name of a tile, returns a table containing its properties.
+
+map.map_info()
+Return a table containing the info you would get from a MAI protocol message.
+Will return nil if the entity the scripted entity is inside is not actually a map.
+
+map.within_map(x, y)
+Return true if the coordinate is inside the map or false if not.
+
+map.size(x, y)
+Returns width,height for the map.
+
+map.set_callback(function, event type)
+Works the same as setting entity callbacks. These are the event types available:
+	join
+		name, username, id
+	leave
+		name, username, id
+	chat
+		text
+		class
+		name, username, id
+
+.------------------------------------------------------------------------------
+| Mini tilemaps
+'------------------------------------------------------------------------------
+
+mini_tilemap.new()
+Create a mini tilemap table and returns it.
+
+mini_tilemap.tile(x, y)
+Get a tile number for use on mini tilemaps; x and y refer to a position, in tile units, on the tileset used for the mini tilemap.
+
+You can freely change the following fields on a mini tilemap table:
+MiniTilemap.tileset_url
+MiniTilemap.visible
+MiniTilemap.clickable
+MiniTilemap.map_width
+MiniTilemap.map_height
+MiniTilemap.tile_width
+MiniTilemap.tile_height
+MiniTilemap.offset_x
+MiniTilemap.offset_y
+MiniTilemap.transparent_tile
+
+MiniTilemap:put(x, y, tile)
+Changes a tile on the tilemap.
+
+MiniTilemap:get(x, y)
+Gets a single tile from the tilemap.
+
+MiniTilemap:clear(tile)
+Fills the whole map and sets it to a given tile value.
+
+MiniTilemap:rect_fill(x, y, w, h, tile)
+Fills a rectangle on the map with the same tile value.
+
+MiniTilemap:paste(source_map, x_destination, y_destination, x_source, y_source, width, height, xflip, yflip)
+Copies a region from one mini tilemap onto another, skipping tiles that are considered transparent for the source tilemap.
+
+MiniTilemap:scroll(x, y, w, h, shift_x, shift_y)
+Scrolls an area on the map by a given amount, wrapping around within the given area.
+
+---
+
+bitmap_4x2.new()
+Creates a new mini tilemap specifically for faking a monochrome bitmap using the mini tilemap system.
+This tilemap can contain regions with different colors on it (by drawing, changing the color, and drawing more), but there will be attribute clash if these areas overlap.
+
+These bitmaps have the following fields you can change
+Bitmap4x2.tileset_url
+Bitmap4x2.visible
+Bitmap4x2.clickable
+Bitmap4x2.map_width
+Bitmap4x2.map_height
+Bitmap4x2.tile_width
+Bitmap4x2.tile_height
+Bitmap4x2.offset_x
+Bitmap4x2.offset_y
+Bitmap4x2.transparent_tile
+Bitmap4x2.color  - Draw operations will use the color written here
+Bitmap4x2.invert - Invert all draw operations so that true is 0 and false is 1
+
+For the default tileset, Bitmap4x2.color will pick from the following:
+ 0: https://lospec.com/palette-list/1bit-black-and-white
+ 1: https://lospec.com/palette-list/gato-roboto-starboard
+ 2: https://lospec.com/palette-list/rat-flavour
+ 3: https://lospec.com/palette-list/bitbee
+ 4: https://lospec.com/palette-list/ys-funky-jam
+ 5: https://lospec.com/palette-list/ys-flowers-and-asbestos
+ 6: https://lospec.com/palette-list/ys-neutral-green
+ 7: https://lospec.com/palette-list/the-night
+ 8: https://lospec.com/palette-list/casio-basic
+ 9: https://lospec.com/palette-list/knockia3310
+10: https://lospec.com/palette-list/gato-roboto-goop
+11: https://lospec.com/palette-list/bit-zantine
+12: https://lospec.com/palette-list/generic-milk-carton
+13: https://lospec.com/palette-list/gato-roboto-port
+14: https://lospec.com/palette-list/noire-truth
+15: https://lospec.com/palette-list/pastelito2
+
+Bitmap4x2:put(x, y, value)
+Changes a pixel on the bitmap (value should be true for on, false for off).
+
+Bitmap4x2:get(x, y)
+Gets a pixel on the bitmap (true for on, false for off).
+Just like the drawing functions this is affected by the invert flag; so if a pixel is on and invert is true, the return value will be false.
+
+Bitmap4x2:clear(value)
+Clear the entire bitmap.
+
+Bitmap4x2:line(x, y, x, y, value)
+Bitmap4x2:line_xor(x, y, x, y)
+Draw a line on the bitmap.
+
+Bitmap4x2:rect(x, y, w, h, value)
+Bitmap4x2:rect_xor(x, y, w, h)
+Draw a rectangle on the bitmap.
+
+Bitmap4x2:rect_fill(x, y, w, h, pixel)
+Bitmap4x2:rect_fill_xor(x, y, w, h)
+Draw a filled rectangle on the bitmap.
+
+Bitmap4x2:draw_sprite(sprite, x, y, value, xflip, yflip)
+Bitmap4x2:draw_sprite_xor(sprite, x, y, xflip, yflip)
+Draws a sprite onto the map.
+
+Bitmap4x2:text(x, y, value, text)
+Bitmap4x2:text_xor(x, y, value, text)
+Draw some text onto the bitmap using te font from https://robey.lag.net/2010/01/23/tiny-monospace-font.html (limited only to ASCII).
+
+Bitmap4x2:paste(source_bitmap, x_destination, y_destination, x_source, y_source, width, height, xflip, yflip)
+Bitmap4x2:paste_xor(source_bitmap, x_destination, y_destination, x_source, y_source, width, height, xflip, yflip)
+Goes through the specified section on the source bitmap and copies it over to the destination bitmap, skipping over pixels that are false.
+Color is not copied over.
+The invert settings of both bitmaps are considered; a pixel will be copied over if the source bitmap would return true for reading that pixel, and the destination will change in the same way that it would if "put" was used with a value of "true".
+
+bitmap_sprite.new(data)
+
+.------------------------------------------------------------------------------
+| Storage
+'------------------------------------------------------------------------------
+
+storage.reset(prefix)
+Removes all key-value pairs that were previously set whose keys start with a given prefix, or nil for all of them
+
+value = storage.load(key)
+Return data that was previously set, or nil if the key does not exist
+
+storage.save(key, value)
+Store a key-value pair in the script; nil will delete the pair
+
+list = storage.list(prefix)
+Get a list of all of the keys that have previously been set whose keys start with a given prefix, or nil for all of them
+
+
+.------------------------------------------------------------------------------
+| Hooks
+'------------------------------------------------------------------------------
+
+tt.set_callback(function, event type)
+Currently there's only one callback available in the tt table:
+	shutdown - run when the script is stopped for some reason, like the scripted entity being unloaded.
+
+.------------------------------------------------------------------------------
+| Miscellaneous
+'------------------------------------------------------------------------------
+
+tt.sleep(milliseconds)
+Wait a given amount of time before continuing on with the script.
+
+tt.owner_say(text)
+Send some text to the owner of this entity, if they're online.
+
+tt.memory_free()
+Return the amount of bytes that this user's scripts have available.
+
+tt.memory_used()
+Return the amount of bytes that this user's scripts have used so far.
+
+tt.from_json(json)
+Decode JSON string.
+
+tt.start_thread(function)
+Starts another thread that will start after the current one finishes its time slice, running a given function.
+
+tt.stop_script()
+Stops all threads on the current script.
+
+tt.run_text_item(entity_id)
+Retrieves the text from a given text item's entity ID and runs it on the current entity.
+Returns true if this was successful, or false if not.
+
+tt.read_text_item(entity_id)
+Retrieves the text from a given text item's entity ID and returns it.
