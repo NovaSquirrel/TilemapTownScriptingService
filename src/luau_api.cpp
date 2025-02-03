@@ -558,6 +558,12 @@ static int tt_entity_object_xy(lua_State* L) {
 		return thread->send_api_call(L, "e_xy", true, 1, "E");
 	return 0;
 }
+static int tt_entity_object_map_id(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_mapid", true, 1, "E");
+	return 0;
+}
 static int tt_entity_object_move(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
@@ -1311,6 +1317,7 @@ void register_lua_api(lua_State* L) {
     static const luaL_Reg entity_object_funcs[] = {
 		{"who",             tt_entity_object_who},
 		{"xy",              tt_entity_object_xy},
+		{"map_id",          tt_entity_object_map_id},
 		{"move",            tt_entity_object_move},
 		{"turn",            tt_entity_object_turn},
 		{"step",            tt_entity_object_step},
