@@ -344,7 +344,7 @@ void VM::thread_function() {
 					case VM_MESSAGE_API_CALL:
 						break;
 					case VM_MESSAGE_API_CALL_GET:
-						fprintf(stderr, "Got response key %d\n", message.other_id);
+						//fprintf(stderr, "Got response key %d\n", message.other_id);
 						this->api_results[message.other_id] = message;
 						free_data = false;
 						break;
