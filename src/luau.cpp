@@ -357,7 +357,7 @@ void VM::thread_function() {
 							(*it).second.get()->start_callback(message.other_id, message.status, message.data, message.data_len);
 							free_data = false; // Will handle freeing data above
 						} else {
-							fprintf(stderr, "Did not find the script");
+							fprintf(stderr, "Did not find script %d\n", message.entity_id);
 						}
 						break;
 					}

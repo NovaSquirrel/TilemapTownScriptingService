@@ -673,13 +673,13 @@ static int tt_entity_object_have_permission(lua_State* L) {
 static int tt_entity_object_take_controls(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "e_takecontrols", false, 2, "Es");
+		return thread->send_api_call(L, "e_takecontrols", false, 5, "EIsbb");
 	return 0;
 }
 static int tt_entity_object_release_controls(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "e_releasecontrols", false, 1, "E");
+		return thread->send_api_call(L, "e_releasecontrols", false, 2, "EI");
 	return 0;
 }
 
