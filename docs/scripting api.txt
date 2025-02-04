@@ -274,7 +274,6 @@ Store a key-value pair in the script; nil will delete the pair
 list = storage.list(prefix)
 Get a list of all of the keys that have previously been set whose keys start with a given prefix, or nil for all of them
 
-
 .------------------------------------------------------------------------------
 | Hooks
 '------------------------------------------------------------------------------
