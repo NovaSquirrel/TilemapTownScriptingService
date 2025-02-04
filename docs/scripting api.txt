@@ -233,7 +233,7 @@ Bitmap4x2:rect(x, y, w, h, value)
 Bitmap4x2:rect_xor(x, y, w, h)
 Draw a rectangle on the bitmap.
 
-Bitmap4x2:rect_fill(x, y, w, h, pixel)
+Bitmap4x2:rect_fill(x, y, w, h, value)
 Bitmap4x2:rect_fill_xor(x, y, w, h)
 Draw a filled rectangle on the bitmap.
 
