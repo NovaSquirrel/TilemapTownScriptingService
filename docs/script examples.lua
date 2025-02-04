@@ -57,9 +57,9 @@ tt.owner_say(storage.load("key2"))
 local a = bitmap_4x2.new()
 a.color = 2
 a.invert = false
-x = 0
-y = 0
-timer = 0
+local x = 0
+local y = 0
+local timer = 0
 while true do
   a:clear(false)
   a:text(x,    y+math.sin(timer)*5,   true, "T")
@@ -142,9 +142,9 @@ me:set_callback(got_key, "key_press")
 local a = bitmap_4x2.new()
 a.color = 2
 a.invert = false
-player_x = 0
-player_y = 0
-timer = 0
+local player_x = 0
+local player_y = 0
+local timer = 0
 while true do
   a:clear(false)
   if keys["move-w"] then player_x -= 1 end
