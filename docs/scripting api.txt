@@ -249,6 +249,11 @@ Color is not copied over.
 The invert settings of both bitmaps are considered; a pixel will be copied over if the source bitmap would return true for reading that pixel, and the destination will change in the same way that it would if "put" was used with a value of "true".
 
 bitmap_sprite.new(data)
+Takes 1 to 16 rows of pixels and creates a sprite that you can use to quickly draw pictures on a bitmap screen.
+The least significant bit of each row is the leftmost pixel. Sprites can be up to 16 pixels wide.
+
+Example:
+bitmap_sprite.new{0b00111100, 0b01000010, 0b10100101, 0b10000001, 0b10100101, 0b10011001, 0b01000010, 0b00111100}
 
 .------------------------------------------------------------------------------
 | Storage
