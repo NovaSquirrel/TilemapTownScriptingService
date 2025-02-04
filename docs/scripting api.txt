@@ -28,6 +28,9 @@ This may contain: name, pic, desc, x, y, dir, id, passengers, vehicle, is_follow
 Entity:xy()
 Returns x,y coordinates for the entity.
 
+Entity:map_id()
+Returns the ID number of the map the entity is on. If the entity is a user, and they have their location hidden or are on a map that isn't public, this will return nil.
+
 .------------------------------------------------------------------------------
 | Entity actions
 '------------------------------------------------------------------------------
