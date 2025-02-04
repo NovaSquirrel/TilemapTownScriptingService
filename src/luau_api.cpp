@@ -382,6 +382,8 @@ static int tt_bitmap_sprite_new(lua_State* L) {
 	memset(sprite, 0, sizeof(struct bitmap_sprite));
 
 	size_t len = lua_objlen(L, 1);
+	if (len >= 16)
+		len = 16;
 	for (size_t i = 1; i <= len; i++) {
 		lua_rawgeti(L, 1, i);
 		unsigned int row = lua_tounsigned(L, -1);
