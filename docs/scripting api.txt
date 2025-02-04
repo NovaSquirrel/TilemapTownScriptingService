@@ -243,7 +243,7 @@ Draws a sprite onto the map.
 
 Bitmap4x2:text(x, y, value, text)
 Bitmap4x2:text_xor(x, y, value, text)
-Draw some text onto the bitmap using te font from https://robey.lag.net/2010/01/23/tiny-monospace-font.html (limited only to ASCII).
+Draw some text onto the bitmap using the font from https://robey.lag.net/2010/01/23/tiny-monospace-font.html (limited only to ASCII).
 
 Bitmap4x2:paste(source_bitmap, x_destination, y_destination, x_source, y_source, width, height, xflip, yflip)
 Bitmap4x2:paste_xor(source_bitmap, x_destination, y_destination, x_source, y_source, width, height, xflip, yflip)
