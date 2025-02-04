@@ -4,6 +4,16 @@
 tt.owner_say("Hello World!")
 
 -------------------------------------------------------------------------------
+-- Send text when clicked on
+-------------------------------------------------------------------------------
+-- Make sure to check the box for making this gadget usable
+local me = entity.me()
+function use(t)
+  me:say("Hello World!")
+end
+me:set_callback(use, "use")
+
+-------------------------------------------------------------------------------
 -- Echo received private messages back to the user
 -------------------------------------------------------------------------------
 function private_message(t)
