@@ -267,6 +267,7 @@ static int tt_map_set_callback(lua_State* L) {
 	}
 	return 0;
 }
+
 static int tt_storage_reset(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
@@ -282,7 +283,7 @@ static int tt_storage_load(lua_State* L) {
 static int tt_storage_save(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "s_save", true, -2, "s$");
+		return thread->send_api_call(L, "s_save", true, 2, "s$");
 	return 0;
 }
 static int tt_storage_list(lua_State* L) {
@@ -291,6 +292,26 @@ static int tt_storage_list(lua_State* L) {
 		return thread->send_api_call(L, "s_list", true, 0, "s");
 	return 0;
 }
+static int tt_storage_count(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "s_count", true, 0, "s");
+	return 0;
+}
+
+static int tt_entity_storage_load(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "es_load", true, 2, "Es");
+	return 0;
+}
+static int tt_entity_storage_save(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "es_save", true, 3, "Es$");
+	return 0;
+}
+
 static int tt_mini_tilemap_tile(lua_State* L) {
 	int x = luaL_checkinteger(L, 1);
 	int y = luaL_checkinteger(L, 2);
@@ -606,6 +627,12 @@ static int tt_entity_object_tell(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
 		return thread->send_api_call(L, "e_tell", false, 3, "EI$");
+	return 0;
+}
+static int tt_entity_object_bot_message_button(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_botmessagebutton", false, 3, "EI$");
 	return 0;
 }
 static int tt_entity_object_typing(lua_State* L) {
@@ -1293,6 +1320,7 @@ void register_lua_api(lua_State* L) {
 		{"load",       tt_storage_load},
 		{"save",       tt_storage_save},
 		{"list",       tt_storage_list},
+		{"count",      tt_storage_count},
         {NULL, NULL},
     };
 
@@ -1339,6 +1367,7 @@ void register_lua_api(lua_State* L) {
 		{"say",             tt_entity_object_say},
 		{"command",         tt_entity_object_command},
 		{"tell",            tt_entity_object_tell},
+		{"bot_message_button", tt_entity_object_bot_message_button},
 		{"typing",          tt_entity_object_typing},
 		{"set",             tt_entity_object_set},
 		{"clone",           tt_entity_object_clone},
@@ -1351,6 +1380,8 @@ void register_lua_api(lua_State* L) {
 		{"release_controls", tt_entity_object_release_controls},
 		{"have_controls_for",  tt_entity_object_have_controls_for},
 		{"have_controls_list", tt_entity_object_have_controls_list},
+		{"storage_load",    tt_entity_storage_load},
+		{"storage_save",    tt_entity_storage_save},
         {NULL, NULL},
     };
 
