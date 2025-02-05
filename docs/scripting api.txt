@@ -95,6 +95,15 @@ These are the event types that are available; when the function is called it wil
 	switch_map
 		id - ID of the map the entity moved to
 
+Entity:bot_message_button(recipient, text)
+Send a bot message button message to another entity.
+
+Entity:storage_load(key)
+Remotely load from another entity's storage, if both entities are owned by the same person.
+
+Entity:storage_save(key, value)
+Remotely write to another entity's storage, if both entities are owned by the same person.
+
 .------------------------------------------------------------------------------
 | Read map
 '------------------------------------------------------------------------------
@@ -262,17 +271,25 @@ bitmap_sprite.new{0b00111100, 0b01000010, 0b10100101, 0b10000001, 0b10100101, 0b
 | Storage
 '------------------------------------------------------------------------------
 
+These functions allow a script to set up persistent storage that will survive across script restarts.
+
+storage.reset()
 storage.reset(prefix)
-Removes all key-value pairs that were previously set whose keys start with a given prefix, or nil for all of them
+Removes all key-value pairs that were previously set whose keys start with a given prefix (or all of them, if omitted)
 
 value = storage.load(key)
-Return data that was previously set, or nil if the key does not exist
+Return data that was previously set, or an empty string if the key does not exist
 
-storage.save(key, value)
-Store a key-value pair in the script; nil will delete the pair
+success = storage.save(key, value)
+Store a key-value pair in the script; an empty string will delete the pair
 
+list = storage.list()
 list = storage.list(prefix)
-Get a list of all of the keys that have previously been set whose keys start with a given prefix, or nil for all of them
+Get a list of all of the keys that have previously been set whose keys start with a given prefix (or all of them, if omitted)
+
+count = storage.count()
+count = storage.count(prefix)
+Get a count for all of the keys that have previously been set whose keys start with a given prefix (or all of them, if omitted)
 
 .------------------------------------------------------------------------------
 | Hooks
