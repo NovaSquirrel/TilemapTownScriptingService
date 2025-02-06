@@ -74,7 +74,7 @@ while true do
     a.color = math.random(0, 16)
   end
   entity.me():set_mini_tilemap(a)
-  tt.sleep(500)
+  tt.sleep_next(500)
 end
 
 -------------------------------------------------------------------------------
@@ -153,6 +153,6 @@ while true do
   if keys["move-s"] then player_y += 1 end
   a:text(player_x, player_y, true, "@")
   entity.me():set_mini_tilemap(a)
-  tt.sleep(100)
+  tt.sleep_next(100)
 end
 
