@@ -425,7 +425,7 @@ static int tt_bitmap_sprite_new(lua_State* L) {
 }
 static int tt_tt_sleep(lua_State* L) {
 	int delay_ms = luaL_checkinteger(L, 1);
-	if (delay_ms == 0)
+	if (delay_ms <= 0)
 		return 0;
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread) {
@@ -433,6 +433,25 @@ static int tt_tt_sleep(lua_State* L) {
 	}
 	return lua_break(L);
 }
+static int tt_tt_sleep_next(lua_State* L) {
+	int delay_ms = luaL_checkinteger(L, 1);
+	if (delay_ms <= 0)
+		return 0;
+	struct timespec now_ts;
+	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now_ts);
+	unsigned long long now_nanoseconds = now_ts.tv_sec * ONE_SECOND_IN_NANOSECONDS + now_ts.tv_nsec;
+	unsigned long long offset = now_nanoseconds % (delay_ms * ONE_MILLISECOND_IN_NANOSECONDS);
+	delay_ms -= offset / ONE_MILLISECOND_IN_NANOSECONDS;
+	if (delay_ms <= 0)
+		return 0;
+
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread) {
+		thread->sleep_for_ms(delay_ms);
+	}
+	return lua_break(L);
+}
+
 static int tt_tt_owner_say(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
@@ -1342,6 +1361,7 @@ void register_lua_api(lua_State* L) {
 
     static const luaL_Reg misc_funcs[] = {
 		{"sleep",           tt_tt_sleep},
+		{"sleep_next",      tt_tt_sleep_next},
 		{"owner_say",       tt_tt_owner_say},
 		{"from_json",       tt_tt_decode_json},
 		//{"to_json",         tt_tt_encode_json},
