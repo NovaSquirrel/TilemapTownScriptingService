@@ -528,6 +528,7 @@ bool Script::compile_and_start(const char *source, size_t source_len, int api_ke
 		sprintf(chunk_name, "=[entity ~%d]", -this->entity_id);
 	}
 	int result = luau_load(this->L, chunk_name, bytecode, bytecodeSize, 0);
+	free(bytecode);
 	if (result) {
 		//fprintf(stderr, "Failed to load script: %s\n", lua_tostring(this->L, -1));
 		const char *error = lua_tostring(this->L, -1);
