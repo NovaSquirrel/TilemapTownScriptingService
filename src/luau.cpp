@@ -139,16 +139,24 @@ VM::VM(int user_id) {
 	this->incoming_message_future = incoming_message_promise.get_future();
 	this->have_incoming_message = false;
 	this->next_api_result_key = 1;
+	this->currently_inside_incoming_messages_handler = false;
 
 	this->count_force_terminate = 0;
 	this->count_preempts = 0;
 
+	// Set up the VM
 	this->L = lua_newstate(lua_allocator, this);
     luaL_openlibs(this->L);
 	register_lua_api(this->L);
 	this->run_code_on_self(all_vms_bytecode, all_vms_bytecode_size);
 	luaL_sandbox(this->L);
 	lua_setthreaddata(this->L, NULL);
+
+	// Create shared table
+	lua_newtable(this->L);
+	this->shared_table_reference = lua_ref(this->L, -1);
+	lua_pop(this->L, 1);
+
 	lua_gc(this->L, LUA_GCCOLLECT, 0);
 
 	lua_Callbacks* cb = lua_callbacks(this->L);
@@ -161,6 +169,7 @@ VM::VM(int user_id) {
 
 VM::~VM() {
 	fprintf(stderr, "del VM\n");
+	lua_unref(this->L, this->shared_table_reference);
 	lua_close(this->L);
 }
 
@@ -169,11 +178,11 @@ void VM::add_script(int entity_id) {
 	this->scripts[entity_id] = std::unique_ptr<Script>(script);
 }
 
-void VM::run_code_on_script(int entity_id, const char *code, size_t code_size) {
+void VM::run_code_on_script(int entity_id, const char *code, size_t code_size, int api_key_to_put_return_value_in) {
 	auto it = this->scripts.find(entity_id);
 	if(it != this->scripts.end()) {
 		Script *script = (*it).second.get();
-		script->compile_and_start(code, code_size);
+		script->compile_and_start(code, code_size, api_key_to_put_return_value_in);
 	}
 }
 
@@ -294,6 +303,16 @@ void VM::receive_message(VM_MessageType type, int entity_id, int other_id, unsig
 	}
 	time(&new_message.received_at);
 
+	if (this->currently_inside_incoming_messages_handler) {
+		// Don't acquire the lock; it's already locked by the VM's thread
+		this->incoming_messages.push(new_message);
+		if (!this->have_incoming_message) {
+			this->incoming_message_promise.set_value();
+			this->have_incoming_message = true;
+		}
+		return;
+	}
+
 	const std::lock_guard<std::mutex> lock(this->incoming_message_mutex);
 	this->incoming_messages.push(new_message);
 	if (!this->have_incoming_message) {
@@ -311,7 +330,8 @@ void VM::thread_function() {
 	while (!quitting) {
 		if (this->have_incoming_message) {
 			const std::lock_guard<std::mutex> lock(this->incoming_message_mutex);
-			
+			this->currently_inside_incoming_messages_handler = true;
+
 			while(!this->incoming_messages.empty()) {
 				VM_Message message = this->incoming_messages.front();
 				bool free_data = true;
@@ -333,7 +353,11 @@ void VM::thread_function() {
 						quitting = true;
 						break;
 					case VM_MESSAGE_RUN_CODE:
-						this->run_code_on_script(message.entity_id, (const char*)message.data, message.data_len);
+						if (message.status == RUN_CODE_STATUS_CREATE_API_RESULT) {
+							this->run_code_on_script(message.entity_id, (const char*)message.data, message.data_len, message.other_id);
+						} else {
+							this->run_code_on_script(message.entity_id, (const char*)message.data, message.data_len, 0);
+						}
 						break;
 					case VM_MESSAGE_START_SCRIPT:
 						this->add_script(message.entity_id);
@@ -343,6 +367,7 @@ void VM::thread_function() {
 						break;
 					case VM_MESSAGE_API_CALL:
 						break;
+					case VM_MESSAGE_API_CALL_UNREF:
 					case VM_MESSAGE_API_CALL_GET:
 						//fprintf(stderr, "Got response key %d\n", message.other_id);
 						this->api_results[message.other_id] = message;
@@ -392,6 +417,7 @@ void VM::thread_function() {
 			this->incoming_message_promise = std::promise<void>();
 			this->incoming_message_future = this->incoming_message_promise.get_future();
 			this->have_incoming_message = false;
+			this->currently_inside_incoming_messages_handler = false;
 		}
 		if (quitting)
 			break;
@@ -466,6 +492,10 @@ Script::Script(VM *vm, int entity_id) {
 	lua_setthreaddata(this->L, NULL);
 
 	luaL_sandboxthread(this->L);
+
+	// Shared table
+	lua_getref(this->L, vm->shared_table_reference);
+	lua_setglobal(this->L, "S");
 }
 
 Script::~Script() {
@@ -476,7 +506,7 @@ Script::~Script() {
 	lua_gc(this->L, LUA_GCCOLLECT, 0);
 }
 
-bool Script::compile_and_start(const char *source, size_t source_len) {
+bool Script::compile_and_start(const char *source, size_t source_len, int api_key_to_put_return_value_in) {
 	if (this->threads.size() >= MAX_SCRIPT_THREAD_COUNT) {
 		//fprintf(stderr, "Too many script threads! Entity %d\n", this->entity_id);
 		return true;
@@ -506,7 +536,7 @@ bool Script::compile_and_start(const char *source, size_t source_len) {
 	}
 
 	// Try running the thread here, but if it doesn't finish then add it to a list to run later
-	ScriptThread *thread = new ScriptThread(this);
+	ScriptThread *thread = new ScriptThread(this, api_key_to_put_return_value_in);
 	lua_xmove(this->L, thread->L, 1);
 	if(thread->run(0)) {
 		delete thread;
@@ -528,7 +558,7 @@ bool Script::start_callback(int callback_id, int data_item_count, void *data, si
 		return true; // Technically it's finished, because it never even had to start
 	}
 
-	ScriptThread *thread = new ScriptThread(this);
+	ScriptThread *thread = new ScriptThread(this, 0);
 	lua_getref(thread->L, this->callback_ref[callback_id]);
 	int arg_count = push_values_from_message_data(thread->L, data_item_count, (char*)data, data_len);
 	if(thread->run(arg_count)) {
@@ -546,7 +576,7 @@ bool Script::start_thread(lua_State *from) {
 		return true;
 	}
 
-	ScriptThread *thread = new ScriptThread(this);
+	ScriptThread *thread = new ScriptThread(this, 0);
 	lua_xmove(from, thread->L, 1);
 	this->threads.insert(std::unique_ptr<ScriptThread>(thread) );
 	return false;
@@ -678,7 +708,7 @@ bool Script::shutdown() {
 
 ///////////////////////////////////////////////////////////
 
-ScriptThread::ScriptThread(Script *s) {
+ScriptThread::ScriptThread(Script *s, int api_key_to_put_return_value_in) {
 	this->script = s;
 
 	// Create a thread and store a reference away to prevent it from getting garbage collected
@@ -688,6 +718,7 @@ ScriptThread::ScriptThread(Script *s) {
 	lua_pop(s->L, 1);
 
 	// Initialize members
+	this->api_key_to_put_return_value_in = api_key_to_put_return_value_in;
 	this->interrupted = nullptr;
 	this->nanoseconds = 0;
 	this->count_force_sleeps = 0;
@@ -761,12 +792,28 @@ bool ScriptThread::run(int arg_count) {
 	int status = this->resume_script_thread_with_stopwatch(this->L, arg_count);
 
 	if (status == 0) {
-		int n = lua_gettop(this->L);
-		if (n) {
-			luaL_checkstack(this->L, LUA_MINSTACK, "too many results to print");
-			lua_getglobal(this->L, "print");
-			lua_insert(this->L, 1);  
-			lua_pcall(this->L, n, 0, 0);
+		if (this->api_key_to_put_return_value_in) {
+			int n = lua_gettop(this->L);
+			if (n) {
+				if (n > 1) {
+					lua_pop(L, n - 1);
+				}
+				this->script->vm->receive_message(VM_MESSAGE_API_CALL_UNREF, this->script->entity_id, this->api_key_to_put_return_value_in, 0, nullptr, lua_ref(this->L, -1)); // Reuse size as a sneaky place to put the actual reference, which doesn't feel great, but it's probably better than creating temporary data?
+				this->api_key_to_put_return_value_in = 0;
+				lua_pop(this->L, 1);
+			} else {
+				this->script->vm->receive_message(VM_MESSAGE_API_CALL_UNREF, this->script->entity_id, this->api_key_to_put_return_value_in, 0, nullptr, LUA_REFNIL);
+				this->api_key_to_put_return_value_in = 0;
+			}
+		} else {
+			int n = lua_gettop(this->L);
+			if (n) {
+				//luaL_checkstack(this->L, LUA_MINSTACK, "too many results to print");
+				//lua_getglobal(this->L, "print");
+				//lua_insert(this->L, 1);  
+				//lua_pcall(this->L, n, 0, 0);
+				lua_pop(this->L, n);
+			}
 		}
 	} else {
 		std::string error;
@@ -783,6 +830,12 @@ bool ScriptThread::run(int arg_count) {
 		const char *c_str = error.c_str();
 		this->send_message(VM_MESSAGE_SCRIPT_ERROR, 0, 0, c_str, strlen(c_str));
 		//fprintf(stderr, "%s\n", error.c_str());
+
+		if (this->api_key_to_put_return_value_in) {
+			// Just return a nil to the thread waiting on this one
+			this->script->vm->receive_message(VM_MESSAGE_API_CALL_UNREF, this->script->entity_id, this->api_key_to_put_return_value_in, 0, nullptr, LUA_REFNIL);
+			this->api_key_to_put_return_value_in = 0;
+		}
 	}
 	return true; // Thread finished and can be removed
 }
@@ -1064,6 +1117,8 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 		this->is_waiting_for_api = true;
 		time(&this->started_waiting_for_api_at);
 		this->api_response_key = this->script->vm->next_api_result_key++;
+		if (this->script->vm->next_api_result_key == 0)
+			this->script->vm->next_api_result_key = 1;
 		//fprintf(stderr, "Expecting response key %d\n", this->api_response_key);
 		this->send_message(VM_MESSAGE_API_CALL_GET, this->api_response_key, arg_count+1, out_buffer, write - out_buffer);
 		return lua_break(L);

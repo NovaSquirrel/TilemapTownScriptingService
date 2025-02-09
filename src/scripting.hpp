@@ -97,6 +97,7 @@ enum VM_MessageType {
 	VM_MESSAGE_SET_CALLBACK,  // User ID, Entity ID, Other = Callback type, Status = 1 to turn it on, 0 to turn it off
 	VM_MESSAGE_SCRIPT_ERROR,  // User ID, Entity ID, Other = Callback type | Data = error message
 	VM_MESSAGE_STATUS_QUERY,  // User ID, Entity ID, Other = Callback type | Data = status message
+	VM_MESSAGE_API_CALL_UNREF, // Sent internally within the scripting service, and used specifically for tt.call_text_item(). Other = API result key, Data length = the reference
 };
 
 enum API_Value_Type {
@@ -108,6 +109,11 @@ enum API_Value_Type {
 	API_VALUE_JSON,
 	API_VALUE_TABLE,
 	API_VALUE_MINI_TILEMAP,
+};
+
+enum RunCodeStatusVar { // Values to be passed in as the status byte for RUN_CODE
+	RUN_CODE_STATUS_NORMAL,
+	RUN_CODE_STATUS_CREATE_API_RESULT,   // Other ID = API result key to create a response for
 };
 
 /*
@@ -132,10 +138,12 @@ struct VM_Message {
 class VM {
 	std::unordered_map<int, std::unique_ptr<Script>> scripts;
 	lua_State *L;
+	bool currently_inside_incoming_messages_handler;
 
 public:
 	int user_id;                    // User that this VM belongs to
 	std::thread thread;
+	int shared_table_reference;
 
 	size_t total_allocated_memory;  // Amount of bytes this VM is currently using
 	size_t memory_allocation_limit; // Maximum number of bytes this VM is allowed to use
@@ -160,7 +168,7 @@ public:
 	void send_message(VM_MessageType type, int other_id, unsigned char status, const void *data, size_t data_len);
 	void add_script(int entity_id);
 	void run_code_on_self(const char *bytecode, size_t bytecode_size);
-	void run_code_on_script(int entity_id, const char *code, size_t code_size);
+	void run_code_on_script(int entity_id, const char *code, size_t code_size, int api_key_to_put_return_value_in);
 	void remove_script(int entity_id);
 	void thread_function();
 	void start_thread();
@@ -191,7 +199,7 @@ public:
 
 	VM *vm;                       // VM containing the script's own global table and all of its threads
 
-	bool compile_and_start(const char *source, size_t source_len);
+	bool compile_and_start(const char *source, size_t source_len, int api_key_to_put_return_value_in);
 	bool start_callback(int callback_id, int data_item_count, void *data, size_t data_len);
 	bool start_thread(lua_State *from);
 	RunThreadsStatus run_threads();
@@ -214,6 +222,8 @@ class ScriptThread {
 	lua_State *L;              // This thread's state
 	int count_force_sleeps;    // Number of times this thread was forcibly made to sleep
 
+	int api_key_to_put_return_value_in; // If zero, feature isn't used. If not zero, lua_ref the result and create an API result
+
 public:
 	bool is_sleeping;          // Currently sleeping
 	timespec wake_up_at;       // If sleeping, when to wake up
@@ -235,7 +245,7 @@ public:
 	void send_message(VM_MessageType type, int other_id, unsigned char status, const void *data, size_t data_len);
 	int send_api_call(lua_State *L, const char *command_name, bool request_response, int param_count, const char *arguments);
 
-	ScriptThread(Script *script);
+	ScriptThread(Script *script, int api_key_to_put_return_value_in);
 	~ScriptThread();
 	friend class Script;
 };

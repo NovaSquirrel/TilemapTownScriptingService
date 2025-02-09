@@ -513,6 +513,15 @@ int push_values_from_message_data(lua_State *L, int num_values, char *data, size
 	return values_pushed;
 }
 
+static int tt_tt_call_text_item(lua_State *L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread) {
+		lua_pushinteger(L, thread->script->vm->next_api_result_key);
+		return thread->send_api_call(L, "callitem", true, 2, "Ii");
+	}
+	return 0;
+}
+
 static int tt_tt_run_text_item(lua_State *L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
@@ -547,7 +556,13 @@ static int tt_tt_get_result(lua_State *L) {
 		if(it != thread->script->vm->api_results.end()) {
 			VM_Message message = (*it).second;
 			thread->script->vm->api_results.erase(it);
-			return push_values_from_message_data(L, message.status, (char*)message.data, message.data_len);
+			if (message.type == VM_MESSAGE_API_CALL_GET) {
+				return push_values_from_message_data(L, message.status, (char*)message.data, message.data_len);
+			} else if (message.type == VM_MESSAGE_API_CALL_UNREF) {
+				lua_getref(L, message.data_len);
+				lua_unref(L, message.data_len);
+				return 1;
+			}
 		} else {
 			return 0;
 		}
@@ -1370,6 +1385,7 @@ void register_lua_api(lua_State* L) {
 		{"set_callback",    tt_tt_set_callback},
 		{"_result",         tt_tt_get_result},
 		{"run_text_item",   tt_tt_run_text_item},
+		{"call_text_item",  tt_tt_call_text_item},
 		{"read_text_item",  tt_tt_read_text_item},
 		{"stop_script",     tt_tt_stop_script},
 		{"start_thread",    tt_tt_start_thread},
