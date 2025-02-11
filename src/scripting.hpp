@@ -97,7 +97,8 @@ enum VM_MessageType {
 	VM_MESSAGE_SET_CALLBACK,  // User ID, Entity ID, Other = Callback type, Status = 1 to turn it on, 0 to turn it off
 	VM_MESSAGE_SCRIPT_ERROR,  // User ID, Entity ID, Other = Callback type | Data = error message
 	VM_MESSAGE_STATUS_QUERY,  // User ID, Entity ID, Other = Callback type | Data = status message
-	VM_MESSAGE_API_CALL_UNREF, // Sent internally within the scripting service, and used specifically for tt.call_text_item(). Other = API result key, Data length = the reference
+	VM_MESSAGE_SCRIPT_PRINT,  // User ID, Entity ID, Other = Callback type | Data = print message
+	VM_MESSAGE_API_CALL_UNREF, // Sent internally within the scripting service, and used specifically for tt.call_text_item(). Other = API result key
 };
 
 enum API_Value_Type {

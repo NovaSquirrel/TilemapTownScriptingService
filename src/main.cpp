@@ -150,6 +150,7 @@ int main(void) {
 			}
 			case VM_MESSAGE_SET_CALLBACK:
 			case VM_MESSAGE_SCRIPT_ERROR:
+			case VM_MESSAGE_SCRIPT_PRINT:
 			case VM_MESSAGE_API_CALL_UNREF: // Definitely ignore this one, as it should be internal
 				break;
 		}

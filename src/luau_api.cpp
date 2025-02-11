@@ -121,18 +121,24 @@ CallbackTypeID get_callback_id_from_name(const char *name, struct callback_name_
 ///////////////////////////////////////////////////////////
 
 static int tt_custom_print(lua_State* L) {
-	// Copied from luaB_print in the Luau code
-    int n = lua_gettop(L); // number of arguments
-    for (int i = 1; i <= n; i++)
-    {
-        size_t l;
-        const char* s = luaL_tolstring(L, i, &l); // convert to string using __tostring et al
-        if (i > 1)
-			fprintf(stderr, "\t");
-		fprintf(stderr, "%s", s);
-        lua_pop(L, 1); // pop result
-    }
-	fprintf(stderr, "\n");
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (!thread) {
+		return 0;
+	}
+	std::string message;
+
+	int n = lua_gettop(L); // number of arguments
+	for (int i = 1; i <= n; i++) {
+		size_t l;
+		const char* s = luaL_tolstring(L, i, &l); // convert to string using __tostring et al
+		if (i > 1)
+			message += "\n";
+		message += s;
+		lua_pop(L, 1); // pop result
+	}
+
+	const char *c_str = message.c_str();
+	thread->send_message(VM_MESSAGE_SCRIPT_PRINT, 0, 0, c_str, strlen(c_str));
 	return 0;
 }
 
