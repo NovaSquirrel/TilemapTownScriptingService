@@ -135,16 +135,29 @@ Return true if the coordinate is inside the map or false if not.
 map.size(x, y)
 Returns width,height for the map.
 
+map.watch_zones(x, y, w, h, ...)
+Specify up to 10 rectangles to watch for movement in.
+Will currently only detect movement, not objects being dropped into or removed from a zone.
+You can call map.watch_zones() with no arguments to reset the list.
+
 map.set_callback(function, event type)
 Works the same as setting entity callbacks. These are the event types available:
 	join
-		name, username, id
+		name, username, id, in_user_list
 	leave
-		name, username, id
+		name, username, id, in_user_list
 	chat
 		text
 		class
-		name, username, id
+		name, username, id, in_user_list
+	zone_enter, zone_leave, zone_move
+		name, username, id, in_user_list
+		from_x
+		from_y
+		x
+		y
+		dir
+		zone
 
 .------------------------------------------------------------------------------
 | Mini tilemaps
@@ -340,3 +353,5 @@ If the entity_id doesn't exist or the called script hits an error, nil is return
 tt.read_text_item(entity_id)
 Retrieves the text from a given text item's entity ID and returns it.
 
+tt.garbage_collect()
+Force a garbage collect.

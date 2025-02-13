@@ -94,7 +94,7 @@ struct callback_name_lookup_item callback_names_self[] = {
 	{"took_controls",      CALLBACK_SELF_TOOK_CONTROLS},
 	{"key_press",          CALLBACK_SELF_KEY_PRESS},
 	{"click",              CALLBACK_SELF_CLICK},
-	{"bot_message_button", CALLBACK_SELF_BOT_COMMAND_BUTTON},
+	{"bot_message_button", CALLBACK_SELF_BOT_MESSAGE_BUTTON},
 	{"request_received",   CALLBACK_SELF_REQUEST_RECEIVED},
 	{"use",                CALLBACK_SELF_USE},
 	{"switch_map",         CALLBACK_SELF_SWITCH_MAP},
@@ -104,7 +104,9 @@ struct callback_name_lookup_item callback_names_map[] = {
 	{"join",               CALLBACK_MAP_JOIN},
 	{"leave",              CALLBACK_MAP_LEAVE},
 	{"chat",               CALLBACK_MAP_CHAT},
-	{"bump",               CALLBACK_MAP_BUMP},
+	{"zone_enter",         CALLBACK_MAP_ZONE_ENTER},
+	{"zone_leave",         CALLBACK_MAP_ZONE_LEAVE},
+	{"zone_move",          CALLBACK_MAP_ZONE_MOVE},
 	{NULL}
 };
 struct callback_name_lookup_item callback_names_misc[] = {
@@ -247,6 +249,12 @@ static int tt_map_within_map(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
 		return thread->send_api_call(L, "m_within", true, 2, "ii");
+	return 0;
+}
+static int tt_map_watch_zones(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "m_watchzones", false, 0, "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii");
 	return 0;
 }
 static int tt_map_size(lua_State* L) {
@@ -551,6 +559,10 @@ static int tt_tt_start_thread(lua_State *L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
 		thread->script->start_thread(L);
+	return 0;
+}
+static int tt_tt_garbagecollect(lua_State *L) {
+	lua_gc(L, LUA_GCCOLLECT, 0);
 	return 0;
 }
 
@@ -1352,6 +1364,7 @@ void register_lua_api(lua_State* L) {
 		{"within_map",      tt_map_within_map},
 		{"size",            tt_map_size},
 		{"set_callback",    tt_map_set_callback},
+		{"watch_zones",     tt_map_watch_zones},
         {NULL, NULL},
     };
 
@@ -1395,6 +1408,7 @@ void register_lua_api(lua_State* L) {
 		{"read_text_item",  tt_tt_read_text_item},
 		{"stop_script",     tt_tt_stop_script},
 		{"start_thread",    tt_tt_start_thread},
+		{"garbage_collect", tt_tt_garbagecollect},
         {NULL, NULL},
     };
 
