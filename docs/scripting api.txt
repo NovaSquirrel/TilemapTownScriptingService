@@ -132,7 +132,7 @@ Will return nil if the entity the scripted entity is inside is not actually a ma
 map.within_map(x, y)
 Return true if the coordinate is inside the map or false if not.
 
-map.size(x, y)
+map.size()
 Returns width,height for the map.
 
 map.watch_zones(x, y, w, h, ...)

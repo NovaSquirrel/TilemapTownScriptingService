@@ -156,3 +156,21 @@ while true do
   tt.sleep_next(100)
 end
 
+-------------------------------------------------------------------------------
+-- Entity you can push around by moving into the tile it occupies
+-------------------------------------------------------------------------------
+map_width, map_height = map.size()
+map.watch_zones(0, 0, map_width, map_height)
+
+function move(t)
+  my_x, my_y = entity.me():xy()
+  if my_x == t.x and my_y == t.y then
+    new_x = my_x + (t.x - t.from_x)
+    new_y = my_y + (t.y - t.from_y)
+    if not map.dense_at(new_x, new_y) then
+      entity.me():move(new_x, new_y)
+    end
+  end
+end
+
+map.set_callback(move, "zone_move")
