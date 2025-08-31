@@ -31,6 +31,18 @@ Returns x,y coordinates for the entity.
 Entity:map_id()
 Returns the ID number of the map the entity is on. If the entity is a user, and they have their location hidden or are on a map that isn't public, this will return nil.
 
+Entity:is_loaded()
+Returns true if the map is currently loaded
+
+Entity:have_permission(id, permission_name)
+Returns true if the entity has a specific permission for another entity, or false if not.
+
+Entity:have_controls_for(id)
+Returns true if the entity has taken the controls for this specific user, otherwise false
+
+Entity:have_controls_list()
+Returns a list of user IDs that this entity has taken the controls for.
+
 .------------------------------------------------------------------------------
 | Entity actions
 '------------------------------------------------------------------------------
@@ -98,6 +110,15 @@ These are the event types that are available; when the function is called it wil
 Entity:bot_message_button(recipient, text)
 Send a bot message button message to another entity.
 
+Entity:set_mini_tilemap(map)
+Sets the entity's mini tilemap to the provided map. Use a MiniTilemap or Bitmap4x2 value.
+
+Entity:take_controls(user_id, key_set, pass_on, key_up)
+Attempts to take the controls for a specific user.
+The only current valid value for key_set is "move" which will request "move-n", "move-ne", "move-e", "move-se", "move-s", "move-sw", "move-w", "move-nw", "turn-n", "turn-ne", "turn-e", "turn-se", "turn-s", "turn-sw", "turn-w", "turn-nw", "use-item".
+pass_on will allow keys to do their normal functions.
+key_up will specify if the script will receive key up events or not.
+
 Entity:storage_load(key)
 Remotely load from another entity's storage, if both entities are owned by the same person.
 
@@ -114,10 +135,10 @@ map.who()
 Return a table of the users here and their WHO info
 
 map.turf_at(x, y)
-Get the floor at a given coordinate.
+Returns the floor at a given coordinate.
 
 map.objs_at(x, y)
-Get a list of objects at a given coordinate.
+Returns a list of objects at a given coordinate.
 
 map.is_dense_at(x, y)
 Check if a given position on the map is dense.
@@ -185,7 +206,7 @@ MiniTilemap:put(x, y, tile)
 Changes a tile on the tilemap.
 
 MiniTilemap:get(x, y)
-Gets a single tile from the tilemap.
+Returns a single tile from the tilemap.
 
 MiniTilemap:clear(tile)
 Fills the whole map and sets it to a given tile value.
@@ -241,7 +262,7 @@ Bitmap4x2:put(x, y, value)
 Changes a pixel on the bitmap (value should be true for on, false for off).
 
 Bitmap4x2:get(x, y)
-Gets a pixel on the bitmap (true for on, false for off).
+Returns a pixel on the bitmap (true for on, false for off).
 Just like the drawing functions this is affected by the invert flag; so if a pixel is on and invert is true, the return value will be false.
 
 Bitmap4x2:clear(value)
@@ -298,11 +319,11 @@ Store a key-value pair in the script; an empty string will delete the pair
 
 list = storage.list()
 list = storage.list(prefix)
-Get a list of all of the keys that have previously been set whose keys start with a given prefix (or all of them, if omitted)
+Returns a list of all of the keys that have previously been set whose keys start with a given prefix (or all of them, if omitted)
 
 count = storage.count()
 count = storage.count(prefix)
-Get a count for all of the keys that have previously been set whose keys start with a given prefix (or all of them, if omitted)
+Returns a count for all of the keys that have previously been set whose keys start with a given prefix (or all of them, if omitted)
 
 .------------------------------------------------------------------------------
 | Hooks
