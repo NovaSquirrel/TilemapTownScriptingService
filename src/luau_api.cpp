@@ -98,6 +98,7 @@ struct callback_name_lookup_item callback_names_self[] = {
 	{"request_received",   CALLBACK_SELF_REQUEST_RECEIVED},
 	{"use",                CALLBACK_SELF_USE},
 	{"switch_map",         CALLBACK_SELF_SWITCH_MAP},
+	{"request_result",     CALLBACK_SELF_REQUEST_RESULT},
 	{NULL}
 };
 struct callback_name_lookup_item callback_names_map[] = {
@@ -435,6 +436,32 @@ static int tt_bitmap_sprite_new(lua_State* L) {
 		if (width > sprite->width)
 			sprite->width = width;
 	}
+	return 1;
+}
+static int tt_bitmap_sprite_new_with_size(lua_State* L) {
+	struct bitmap_sprite *sprite = static_cast<struct bitmap_sprite *>(lua_newuserdatatagged(L, sizeof(struct bitmap_sprite), USER_DATA_BITMAP_SPRITE));
+	memset(sprite, 0, sizeof(struct bitmap_sprite));
+
+	unsigned int width = lua_tounsigned(L, 1);
+	unsigned int height = lua_tounsigned(L, 2);
+	if (width > 16) {
+		width = 16;
+	}
+	if (height > 16) {
+		height = 16;
+	}
+
+	size_t len = lua_objlen(L, 3);
+	if (len >= 16)
+		len = 16;
+	for (size_t i = 1; i <= len; i++) {
+		lua_rawgeti(L, 3, i);
+		unsigned int row = lua_tounsigned(L, -1);
+		lua_pop(L, 1);
+		sprite->pixels[i-1] = row;
+	}
+	sprite->width = width;
+	sprite->height = height;
 	return 1;
 }
 static int tt_tt_sleep(lua_State* L) {
@@ -1390,6 +1417,7 @@ void register_lua_api(lua_State* L) {
 
     static const luaL_Reg bitmap_sprite_funcs[] = {
 		{"new",        tt_bitmap_sprite_new},
+		{"new_wh",     tt_bitmap_sprite_new_with_size},
         {NULL, NULL},
     };
 

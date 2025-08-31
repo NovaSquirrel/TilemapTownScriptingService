@@ -102,6 +102,10 @@ These are the event types that are available; when the function is called it wil
 		accept_command - command to run to accept this request
 		decline_command - command to run to decline this request
 		name, username, id
+	request_result
+		type - request type
+		result - true if request was accepted
+		name, username, id
 	use
 		name, username, id
 	switch_map
