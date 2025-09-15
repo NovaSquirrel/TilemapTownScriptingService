@@ -135,7 +135,7 @@ VM::VM(int user_id) {
 	fprintf(stderr, "new VM\n");
 	this->user_id = user_id;
 	this->total_allocated_memory = 0;
-	this->memory_allocation_limit = 3*1024*1024;
+	this->memory_allocation_limit = 4*1024*1024;
 	this->incoming_message_future = incoming_message_promise.get_future();
 	this->have_incoming_message = false;
 	this->next_api_result_key = 1;

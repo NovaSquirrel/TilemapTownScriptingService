@@ -59,6 +59,7 @@ Take one step in a given direction, but do not move if moving would cause the en
 
 Entity:fly(direction, steps)
 Take a given number of steps in a given direction, ignoring dense tiles.
+"steps" is optional
 
 Entity:say(text)
 Send chat to the entity's current map.
@@ -144,7 +145,7 @@ Returns the floor at a given coordinate.
 map.objs_at(x, y)
 Returns a list of objects at a given coordinate.
 
-map.is_dense_at(x, y)
+map.dense_at(x, y)
 Check if a given position on the map is dense.
 
 map.tile_lookup(name)

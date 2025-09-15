@@ -681,13 +681,13 @@ static int tt_entity_object_turn(lua_State* L) {
 static int tt_entity_object_step(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "e_step", false, 2, "Ei");
+		return thread->send_api_call(L, "e_step", false, -2, "Eii");
 	return 0;
 }
 static int tt_entity_object_fly(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
-		return thread->send_api_call(L, "e_fly", false, 2, "Ei");
+		return thread->send_api_call(L, "e_fly", false, -2, "Eii");
 	return 0;
 }
 static int tt_entity_object_say(lua_State* L) {
