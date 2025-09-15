@@ -434,6 +434,16 @@ void VM::thread_function() {
 			}
 		}
 
+		// Remove API results that have existed for a minute without being read
+		time_t now = time(NULL);
+		for(auto itr = this->api_results.begin(); itr != this->api_results.end(); ) {
+			if (now >= ((*itr).second.received_at + 60)) {
+				itr = this->api_results.erase(itr);
+			} else {
+				++itr;
+			}
+		}
+
 		//fprintf(stderr, "VM run scripts status: %d\n", status);
 		switch (status) {
 			case RUN_THREADS_ALL_WAITING:
@@ -446,7 +456,7 @@ void VM::thread_function() {
 						timespec d = diff_ts(now_ts, this->earliest_wake_up_at);
 						this->incoming_message_future.wait_for(std::chrono::nanoseconds(d.tv_sec * ONE_SECOND_IN_NANOSECONDS + d.tv_nsec));
 					} else {
-						fprintf(stderr, "Waiting for something in the past");
+						//fprintf(stderr, "Waiting for something in the past");
 						continue;
 					}
 				} else {
