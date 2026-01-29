@@ -27,12 +27,13 @@ This may contain: name, pic, desc, x, y, dir, id, passengers, vehicle, is_follow
 
 Entity:xy()
 Returns x,y coordinates for the entity.
+Returns two values, so use something like "my_x, my_y = entity.me():xy()".
 
 Entity:map_id()
 Returns the ID number of the map the entity is on. If the entity is a user, and they have their location hidden or are on a map that isn't public, this will return nil.
 
 Entity:is_loaded()
-Returns true if the map is currently loaded
+Returns true if the entity is currently loaded
 
 Entity:have_permission(id, permission_name)
 Returns true if the entity has a specific permission for another entity, or false if not.
@@ -160,6 +161,7 @@ Return true if the coordinate is inside the map or false if not.
 
 map.size()
 Returns width,height for the map.
+Returns two values, so use something like "map_width, map_height = map.size()".
 
 map.watch_zones(x, y, w, h, ...)
 Specify up to 10 rectangles to watch for movement in.
