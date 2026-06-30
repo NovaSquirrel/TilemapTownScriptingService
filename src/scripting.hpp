@@ -1,7 +1,7 @@
 /* 
  * Tilemap Town Scripting Service
  *
- * Copyright (C) 2025 NovaSquirrel
+ * Copyright (C) 2025-2026 NovaSquirrel
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -81,6 +81,7 @@ enum CallbackTypeID {
 	CALLBACK_SELF_USE,
 	CALLBACK_SELF_SWITCH_MAP,
 	CALLBACK_SELF_REQUEST_RESULT,
+	CALLBACK_SELF_DRAG,
 	CALLBACK_COUNT,
 	CALLBACK_INVALID,
 };

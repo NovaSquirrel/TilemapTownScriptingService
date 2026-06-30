@@ -1,7 +1,7 @@
 /* 
  * Tilemap Town Scripting Service
  *
- * Copyright (C) 2025 NovaSquirrel
+ * Copyright (C) 2025-2026 NovaSquirrel
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -99,6 +99,7 @@ struct callback_name_lookup_item callback_names_self[] = {
 	{"use",                CALLBACK_SELF_USE},
 	{"switch_map",         CALLBACK_SELF_SWITCH_MAP},
 	{"request_result",     CALLBACK_SELF_REQUEST_RESULT},
+	{"drag",               CALLBACK_SELF_DRAG},
 	{NULL}
 };
 struct callback_name_lookup_item callback_names_map[] = {
@@ -660,6 +661,12 @@ static int tt_entity_object_xy(lua_State* L) {
 		return thread->send_api_call(L, "e_xy", true, 1, "E");
 	return 0;
 }
+static int tt_entity_object_xy_pixel(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_xy_pixel", true, 1, "E");
+	return 0;
+}
 static int tt_entity_object_map_id(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
@@ -670,6 +677,12 @@ static int tt_entity_object_move(lua_State* L) {
 	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
 	if (thread)
 		return thread->send_api_call(L, "e_move", false, -2, "Eiii");
+	return 0;
+}
+static int tt_entity_object_move_pixel(lua_State* L) {
+	ScriptThread *thread = static_cast<ScriptThread*>(lua_getthreaddata(L));
+	if (thread)
+		return thread->send_api_call(L, "e_move_pixel", false, -2, "Eiii");
 	return 0;
 }
 static int tt_entity_object_turn(lua_State* L) {
@@ -1443,8 +1456,10 @@ void register_lua_api(lua_State* L) {
     static const luaL_Reg entity_object_funcs[] = {
 		{"who",             tt_entity_object_who},
 		{"xy",              tt_entity_object_xy},
+		{"xy_pixel",        tt_entity_object_xy_pixel},
 		{"map_id",          tt_entity_object_map_id},
 		{"move",            tt_entity_object_move},
+		{"move_pixel",      tt_entity_object_move_pixel},
 		{"turn",            tt_entity_object_turn},
 		{"step",            tt_entity_object_step},
 		{"fly",             tt_entity_object_fly},

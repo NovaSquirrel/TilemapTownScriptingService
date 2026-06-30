@@ -29,6 +29,10 @@ Entity:xy()
 Returns x,y coordinates for the entity.
 Returns two values, so use something like "my_x, my_y = entity.me():xy()".
 
+Entity:xy_pixel()
+Returns x,y coordinates for the entity, in pixel units, instead of tile units.
+Returns two values, so use something like "my_px, my_py = entity.me():xy_pixel()".
+
 Entity:map_id()
 Returns the ID number of the map the entity is on. If the entity is a user, and they have their location hidden or are on a map that isn't public, this will return nil.
 
@@ -51,6 +55,10 @@ Returns a list of user IDs that this entity has taken the controls for.
 Entity:move(x, y)
 Entity:move(x, y, direction)
 Change the entity's position; "direction" is optional and is an integer from 0 (east) to 7 (north east), going clockwise
+
+Entity:move_pixel(x, y)
+Entity:move_pixel(x, y, direction)
+Change the entity's position *and* offset; x and y are pixel values instead of map position values. 0,0 is the top left corner of the map, 16,0 is the tile to the right of the tip left corner of the map. "direction" is optional and is an integer from 0 (east) to 7 (north east), going clockwise
 
 Entity:turn(direction)
 Only change an entity's position, do not move it.
@@ -94,6 +102,15 @@ These are the event types that are available; when the function is called it wil
 		x - pixel X position of the click, relative to the top left of the clicked object
 		y - pixel Y position of the click, relative to the top left of the clicked object
 		button - usually 0, which means a left click, or stylus tap, or anything like that
+		target - "entity" or "mini_tilemap"
+		name, username, id
+	drag
+		from_x, from_y
+		x, y
+		from_map_x, from_map_y
+		map_x, map_y
+		button - usually 0, which means a left click, or stylus tap, or anything like that
+		end - the drag event has finished
 		target - "entity" or "mini_tilemap"
 		name, username, id
 	bot_message_button
@@ -200,7 +217,7 @@ Get a tile number for use on mini tilemaps; x and y refer to a position, in tile
 You can freely change the following fields on a mini tilemap table:
 MiniTilemap.tileset_url
 MiniTilemap.visible
-MiniTilemap.clickable
+MiniTilemap.clickable <-- may be true, false, "drag" or "map_drag"
 MiniTilemap.map_width
 MiniTilemap.map_height
 MiniTilemap.tile_width

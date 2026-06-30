@@ -1,7 +1,7 @@
 /* 
  * Tilemap Town Scripting Service
  *
- * Copyright (C) 2025 NovaSquirrel
+ * Copyright (C) 2025-2026 NovaSquirrel
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -31,7 +31,7 @@ void send_outgoing_message(VM_MessageType type, unsigned int user_id, int entity
 
 int main(void) {
 	// Compile the global script before doing anything else
-	const char *script_to_load_into_all_vms = "for k, v in {{\"entity\", \"new\"},{\"map\", \"who\"},{\"map\", \"size\"},{\"map\", \"turf_at\"},{\"map\", \"objs_at\"},{\"map\", \"dense_at\"},{\"map\", \"tile_lookup\"},{\"map\", \"map_info\"},{\"map\", \"within_map\"},{\"storage\", \"load\"},{\"storage\", \"list\"},{\"storage\", \"count\"},{\"storage\", \"save\"},{\"storage\", \"reset\"},{\"Entity\", \"who\"},{\"Entity\", \"clone\"},{\"Entity\", \"is_loaded\"},{\"Entity\", \"xy\"},{\"Entity\", \"map_id\"},{\"Entity\", \"have_controls_for\"},{\"Entity\", \"have_controls_list\"},{\"Entity\", \"storage_save\"},{\"Entity\", \"storage_load\"},{\"tt\", \"run_text_item\"},{\"tt\", \"call_text_item\"},{\"tt\", \"read_text_item\"}} do local original = _G[v[1]][v[2]]; _G[v[1]][v[2]] = function(...) original(unpack({...})); return tt._result(); end; end; local _here = _G.entity.here; _G.entity.here = function() _here(); return entity.get(tt._result()); end";
+	const char *script_to_load_into_all_vms = "for k, v in {{\"entity\", \"new\"},{\"map\", \"who\"},{\"map\", \"size\"},{\"map\", \"turf_at\"},{\"map\", \"objs_at\"},{\"map\", \"dense_at\"},{\"map\", \"tile_lookup\"},{\"map\", \"map_info\"},{\"map\", \"within_map\"},{\"storage\", \"load\"},{\"storage\", \"list\"},{\"storage\", \"count\"},{\"storage\", \"save\"},{\"storage\", \"reset\"},{\"Entity\", \"who\"},{\"Entity\", \"clone\"},{\"Entity\", \"is_loaded\"},{\"Entity\", \"xy\"},{\"Entity\", \"xy_pixel\"},{\"Entity\", \"map_id\"},{\"Entity\", \"have_controls_for\"},{\"Entity\", \"have_controls_list\"},{\"Entity\", \"storage_save\"},{\"Entity\", \"storage_load\"},{\"tt\", \"run_text_item\"},{\"tt\", \"call_text_item\"},{\"tt\", \"read_text_item\"}} do local original = _G[v[1]][v[2]]; _G[v[1]][v[2]] = function(...) original(unpack({...})); return tt._result(); end; end; local _here = _G.entity.here; _G.entity.here = function() _here(); return entity.get(tt._result()); end";
 	all_vms_bytecode = luau_compile(script_to_load_into_all_vms, strlen(script_to_load_into_all_vms), NULL, &all_vms_bytecode_size);
 
 	//VM l = VM(1);
@@ -91,6 +91,7 @@ int main(void) {
 				break;
 			case VM_MESSAGE_START_SCRIPT:
 			{
+				// Is there already a VM for this user?
 				auto it = vm_by_user.find(user_id);
 				if(it != vm_by_user.end()) {
 					VM *vm = (*it).second.get();

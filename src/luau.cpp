@@ -1,7 +1,7 @@
 /* 
  * Tilemap Town Scripting Service
  *
- * Copyright (C) 2025 NovaSquirrel
+ * Copyright (C) 2025-2026 NovaSquirrel
  *
  * This program is free software: you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -1036,7 +1036,19 @@ int ScriptThread::send_api_call(lua_State *L, const char *command_name, bool req
 				lua_pop(L, 1);
 
 				lua_getfield(L, i+1, "clickable");
-				*(write++) = API_VALUE_FALSE + lua_toboolean(L, -1);
+				if(lua_isboolean(L, -1)) {
+					*(write++) = API_VALUE_FALSE + lua_toboolean(L, -1);
+				} else {
+					*(write++) = API_VALUE_STRING;
+					s = luaL_tolstring(L, -1, &l);
+					*((int*)write) = l;
+					if (l > 16)
+						return 0;
+					write += 4;
+					memcpy(write, s, l);
+					lua_pop(L, 1);
+					write += l;
+				}
 				lua_pop(L, 1);
 
 				lua_getfield(L, i+1, "transparent_tile");
